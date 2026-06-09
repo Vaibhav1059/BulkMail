@@ -5,7 +5,6 @@ export const AppContext = createContext();
 export const API_BASE = 'http://localhost:5000/api';
 
 export const AppProvider = ({ children }) => {
-  const [currentUserRole, setCurrentUserRole] = useState('Admin'); // 'Admin' | 'Manager' | 'Operator'
   const [users, setUsers] = useState([]);
 
   const [campaigns, setCampaigns] = useState([]);
@@ -268,8 +267,7 @@ export const AppProvider = ({ children }) => {
 
   // Save campaign to MySQL via API
   const saveCampaign = async (campaignData) => {
-    const creatorNames = { Admin: 'Alexander Wright', Manager: 'Marcus Chen', Operator: 'Sarah Jenkins' };
-    const creator = creatorNames[currentUserRole] || 'System Mailer';
+    const creator = 'Administrator';
     const id = 'c' + Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
     
     const payload = {
@@ -400,6 +398,23 @@ export const AppProvider = ({ children }) => {
     }
   };
 
+  const updateCampaignSchedule = async (campaignId, scheduleDate) => {
+    try {
+      const res = await fetch(`${API_BASE}/campaigns/${campaignId}/update-schedule`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scheduleDate: new Date(scheduleDate).toISOString() })
+      });
+      if (!res.ok) {
+        throw new Error('Failed to update campaign schedule');
+      }
+      await refreshData();
+    } catch (err) {
+      console.error('Error updating campaign schedule:', err);
+      alert(err.message);
+    }
+  };
+
   // Save Settings to MySQL
   const updateSettings = async (newSettings) => {
     const payload = {
@@ -508,8 +523,6 @@ export const AppProvider = ({ children }) => {
 
   return (
     <AppContext.Provider value={{
-      currentUserRole,
-      setCurrentUserRole,
       users,
       addUser,
       updateUser,
@@ -543,7 +556,8 @@ export const AppProvider = ({ children }) => {
       deleteAuditLogsBulk,
       restoreAuditLogsBulk,
       clearCampaignHistory,
-      cancelCampaignSchedule
+      cancelCampaignSchedule,
+      updateCampaignSchedule
     }}>
       {children}
     </AppContext.Provider>

@@ -24,31 +24,30 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 
 export const Layout = ({ children }) => {
-  const { currentUserRole, setCurrentUserRole, users, settings } = useContext(AppContext);
+  const { users, settings } = useContext(AppContext);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Find profile details based on active role
-  const currentProfile = users.find(u => u.role === currentUserRole) || {
-    name: 'System User',
-    email: 'user@enterprise.com',
-    avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&q=80'
+  // Standard static profile details for the user
+  const currentProfile = {
+    name: 'Alexander Wright',
+    email: 'alex@enterprise.com',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80'
   };
 
   const navItems = [
-    { name: 'Dashboard', path: '/', icon: LayoutDashboard, roles: ['Admin', 'Manager', 'Operator'] },
-    { name: 'Create Campaign', path: '/campaigns/new', icon: MailPlus, roles: ['Admin', 'Manager'] },
-    { name: 'CSV Upload & Mapping', path: '/csv-upload', icon: UploadCloud, roles: ['Admin', 'Manager', 'Operator'] },
-    { name: 'Template Builder', path: '/template-builder', icon: FileCode, roles: ['Admin', 'Manager'] },
-    { name: 'Manage Templates', path: '/templates', icon: Layers, roles: ['Admin', 'Manager'] },
-    { name: 'Preview Campaign', path: '/preview', icon: Eye, roles: ['Admin', 'Manager', 'Operator'] },
-    { name: 'Sending Monitor', path: '/sending-monitor', icon: Activity, roles: ['Admin', 'Manager', 'Operator'] },
-    { name: 'Analytics', path: '/analytics', icon: BarChart3, roles: ['Admin', 'Manager'] },
-    { name: 'Audit Logs', path: '/audit-logs', icon: FileText, roles: ['Admin', 'Manager', 'Operator'] },
-    { name: 'User Management', path: '/users', icon: Users, roles: ['Admin'] },
-    { name: 'Settings', path: '/settings', icon: SettingsIcon, roles: ['Admin'] },
+    { name: 'Dashboard', path: '/', icon: LayoutDashboard },
+    { name: 'Create Campaign', path: '/campaigns/new', icon: MailPlus },
+    { name: 'CSV Upload & Mapping', path: '/csv-upload', icon: UploadCloud },
+    { name: 'Template Builder', path: '/template-builder', icon: FileCode },
+    { name: 'Manage Templates', path: '/templates', icon: Layers },
+    { name: 'Preview Campaign', path: '/preview', icon: Eye },
+    { name: 'Sending Monitor', path: '/sending-monitor', icon: Activity },
+    { name: 'Analytics', path: '/analytics', icon: BarChart3 },
+    { name: 'Audit Logs', path: '/audit-logs', icon: FileText },
+    { name: 'Settings', path: '/settings', icon: SettingsIcon },
   ];
 
   const getPageTitle = () => {
@@ -103,45 +102,26 @@ export const Layout = ({ children }) => {
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
-            const hasAccess = item.roles.includes(currentUserRole);
 
             return (
               <div key={item.path} className="relative group">
-                {!hasAccess ? (
-                  // Locked style
-                  <div
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-400 cursor-not-allowed text-sm"
-                    title={`Restricted to: ${item.roles.join(', ')}`}
-                  >
-                    <Icon size={18} className="flex-shrink-0 opacity-40" />
-                    {!isCollapsed && (
-                      <span className="flex-grow flex items-center justify-between opacity-40">
-                        {item.name}
-                        <span className="text-[10px] font-semibold bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded uppercase tracking-wider">
-                          Locked
-                        </span>
-                      </span>
-                    )}
-                  </div>
-                ) : (
-                  <Link
-                    to={item.path}
-                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-300 text-sm ${
-                      isActive
-                        ? 'bg-indigo-50 border-l-2 border-indigo-600 text-indigo-700 font-semibold'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/30 border-l-2 border-transparent'
-                    }`}
-                  >
-                    <Icon size={18} className={`flex-shrink-0 ${isActive ? 'text-indigo-600' : 'text-slate-500'}`} />
-                    {!isCollapsed && <span>{item.name}</span>}
-                  </Link>
-                )}
+                <Link
+                  to={item.path}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-300 text-sm ${
+                    isActive
+                      ? 'bg-indigo-50 border-l-2 border-indigo-600 text-indigo-700 font-semibold'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/30 border-l-2 border-transparent'
+                  }`}
+                >
+                  <Icon size={18} className={`flex-shrink-0 ${isActive ? 'text-indigo-600' : 'text-slate-500'}`} />
+                  {!isCollapsed && <span>{item.name}</span>}
+                </Link>
               </div>
             );
           })}
         </nav>
 
-        {/* Footer Role Display */}
+        {/* Footer Display */}
         <div className="p-4 border-t border-slate-200/80 bg-slate-100/50 text-center">
           {!isCollapsed ? (
             <div className="flex items-center gap-3 text-left">
@@ -153,7 +133,7 @@ export const Layout = ({ children }) => {
               <div className="overflow-hidden">
                 <p className="text-xs font-semibold text-slate-800 truncate">{currentProfile.name}</p>
                 <span className="inline-block text-[9px] font-bold px-1.5 py-0.2 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded">
-                  {currentUserRole}
+                  Administrator
                 </span>
               </div>
             </div>
@@ -181,29 +161,6 @@ export const Layout = ({ children }) => {
           </div>
 
           <div className="flex items-center gap-4">
-            {/* DEMO ROLE CONTROLLER */}
-            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2 py-1 rounded-lg">
-              <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold px-1 md:inline hidden">Role:</span>
-              <div className="flex gap-1">
-                {['Admin', 'Manager', 'Operator'].map((role) => (
-                  <button
-                    key={role}
-                    onClick={() => {
-                      setCurrentUserRole(role);
-                      navigate('/');
-                    }}
-                    className={`px-2 py-0.5 text-[10px] font-bold rounded transition-all duration-300 ${
-                      currentUserRole === role
-                        ? 'bg-indigo-600 text-white shadow-glow-indigo'
-                        : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200/50'
-                    }`}
-                  >
-                    {role}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {/* Notifications Menu */}
             <div className="relative">
               <button
@@ -251,7 +208,7 @@ export const Layout = ({ children }) => {
               />
               <div className="hidden lg:block text-left leading-tight">
                 <p className="text-xs font-semibold text-slate-700">{currentProfile.name}</p>
-                <span className="text-[9px] text-slate-400">{currentUserRole}</span>
+                <span className="text-[9px] text-slate-400">Administrator</span>
               </div>
             </div>
           </div>

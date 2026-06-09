@@ -13,7 +13,6 @@ import PreviewCampaign from './pages/PreviewCampaign';
 import SendingMonitor from './pages/SendingMonitor';
 import Analytics from './pages/Analytics';
 import AuditLogs from './pages/AuditLogs';
-import UserManagement from './pages/UserManagement';
 import Settings from './pages/Settings';
 
 function App() {
@@ -31,7 +30,6 @@ function App() {
             <Route path="/sending-monitor" element={<SendingMonitor />} />
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/audit-logs" element={<AuditLogs />} />
-            <Route path="/users" element={<UserManagement />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </Layout>

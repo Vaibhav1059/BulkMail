@@ -1,7 +1,6 @@
 import React, { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
-import { Protected } from '../components/Protected';
 import {
   FileCode,
   Sparkles,
@@ -140,8 +139,7 @@ export const TemplateBuilder = () => {
   };
 
   return (
-    <Protected allowedRoles={['Admin', 'Manager']}>
-      <div className="space-y-6">
+    <div className="space-y-6">
         {/* Title */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
@@ -335,7 +333,6 @@ export const TemplateBuilder = () => {
           </div>
         </div>
       </div>
-    </Protected>
   );
 };
 export default TemplateBuilder;

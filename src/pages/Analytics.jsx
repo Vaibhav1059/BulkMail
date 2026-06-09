@@ -1,6 +1,5 @@
 import React, { useContext } from 'react';
 import { AppContext } from '../context/AppContext';
-import { Protected } from '../components/Protected';
 import {
   TrendingUp,
   Percent,
@@ -33,8 +32,7 @@ export const Analytics = () => {
   const COLORS = ['#6366f1', '#8b5cf6', '#a855f7', '#ec4899'];
 
   return (
-    <Protected allowedRoles={['Admin', 'Manager']}>
-      <div className="space-y-6">
+    <div className="space-y-6">
         {/* Title */}
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-800">Performance Analytics</h1>
@@ -199,7 +197,6 @@ export const Analytics = () => {
           </div>
         </div>
       </div>
-    </Protected>
   );
 };
 export default Analytics;

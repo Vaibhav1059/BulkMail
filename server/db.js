@@ -31,20 +31,20 @@ class JSONDb {
           sentCount: 1450,
           failedCount: 0,
           status: 'Completed',
-          date: new Date(Date.now() - 5*24*60*60*1000).toISOString(),
+          date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
           creator: 'Marcus Chen',
           smtpUsed: 'smtp.sendgrid.net',
-          sendTime: new Date(Date.now() - 5*24*60*60*1000 - 30*60*1000).toISOString(),
-          completionTime: new Date(Date.now() - 5*24*60*60*1000).toISOString()
+          sendTime: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000 - 30 * 60 * 1000).toISOString(),
+          completionTime: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString()
         }
       ],
       recipients: [],
       audit_logs: [
-        { 
-          id: 'l1', 
-          date: new Date().toISOString(), 
-          user: 'Alexander Wright', 
-          action: 'Database schema successfully initialized in JSON fallback mode', 
+        {
+          id: 'l1',
+          date: new Date().toISOString(),
+          user: 'Vaibhav Soni',
+          action: 'Database schema successfully initialized in JSON fallback mode',
           status: 'Success',
           campaignId: null,
           campaignName: null,
@@ -226,8 +226,8 @@ function executeJsonQuery(jsonDb, sql, params = []) {
     return [list];
   }
 
-  if (normalizedSql.startsWith("update campaigns set status = 'sending', sendtime = ? where id = ?") || 
-      normalizedSql.startsWith("update campaigns set status = \"sending\", sendtime = ? where id = ?")) {
+  if (normalizedSql.startsWith("update campaigns set status = 'sending', sendtime = ? where id = ?") ||
+    normalizedSql.startsWith("update campaigns set status = \"sending\", sendtime = ? where id = ?")) {
     const [sendTime, id] = params;
     const camp = jsonDb.data.campaigns.find(c => c.id === id);
     if (camp) {
@@ -251,7 +251,7 @@ function executeJsonQuery(jsonDb, sql, params = []) {
   }
 
   if (normalizedSql.startsWith("update campaigns set status = 'draft', scheduledate = null where id = ?") ||
-      normalizedSql.startsWith("update campaigns set status = \"draft\", scheduledate = null where id = ?")) {
+    normalizedSql.startsWith("update campaigns set status = \"draft\", scheduledate = null where id = ?")) {
     const id = params[0];
     const camp = jsonDb.data.campaigns.find(c => c.id === id);
     if (camp) {
@@ -262,10 +262,20 @@ function executeJsonQuery(jsonDb, sql, params = []) {
     return [{ affectedRows: 1 }];
   }
 
+  if (normalizedSql.startsWith("update campaigns set scheduledate = ? where id = ?")) {
+    const [scheduleDate, id] = params;
+    const camp = jsonDb.data.campaigns.find(c => c.id === id);
+    if (camp) {
+      camp.scheduleDate = scheduleDate;
+      jsonDb.write();
+    }
+    return [{ affectedRows: 1 }];
+  }
+
   // 8. INSERT INTO campaigns
   if (normalizedSql.startsWith('insert into campaigns')) {
     const [id, name, subject, body, status, date, creator, recipientsCount, scheduleDate] = params;
-    
+
     // Check if campaign already exists, delete it first (upsert behavior)
     jsonDb.data.campaigns = jsonDb.data.campaigns.filter(c => c.id !== id);
 

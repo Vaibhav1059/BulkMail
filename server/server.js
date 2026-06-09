@@ -176,6 +176,35 @@ app.post('/api/campaigns/:id/cancel-schedule', async (req, res) => {
   }
 });
 
+// 3c. Reschedule campaign
+app.post('/api/campaigns/:id/update-schedule', async (req, res) => {
+  const { id } = req.params;
+  const { scheduleDate } = req.body;
+  try {
+    const [camp] = await pool.query('SELECT name FROM campaigns WHERE id = ?;', [id]);
+    if (camp.length === 0) {
+      return res.status(404).json({ error: 'Campaign not found' });
+    }
+    const campaignName = camp[0].name;
+
+    await pool.query(
+      `UPDATE campaigns SET scheduleDate = ? WHERE id = ?;`,
+      [scheduleDate, id]
+    );
+
+    await logEvent(
+      'Administrator', 
+      `Rescheduled Campaign "${campaignName}" to ${new Date(scheduleDate).toLocaleString()}`, 
+      'Success', 
+      id, 
+      { campaignName, scheduleDate }
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 4. Fetch SMTP Settings (with masked password for security)
 app.get('/api/settings', async (req, res) => {
   try {

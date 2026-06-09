@@ -497,13 +497,14 @@
 }
 
 /* Checkbox Style System */
-.audit-checkbox {
+input[type="checkbox"].audit-checkbox {
   appearance: none;
+  -webkit-appearance: none;
   width: 16px;
   height: 16px;
-  border: 1.5px solid var(--neutral-light);
+  border: 1.5px solid var(--neutral-light) !important;
   border-radius: 4px;
-  background-color: #ffffff;
+  background-color: #ffffff !important;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -512,12 +513,12 @@
   transition: all var(--transition-fast);
 }
 
-.audit-checkbox:checked {
-  background-color: var(--primary-color);
-  border-color: var(--primary-color);
+input[type="checkbox"].audit-checkbox:checked {
+  background-color: var(--primary-color) !important;
+  border-color: var(--primary-color) !important;
 }
 
-.audit-checkbox:checked::after {
+input[type="checkbox"].audit-checkbox:checked::after {
   content: "";
   display: block;
   width: 4px;
@@ -527,6 +528,7 @@
   transform: rotate(45deg);
   position: absolute;
   top: 1px;
+  left: 4.5px;
 }
 
 /* Timestamp Column */

@@ -1,6 +1,5 @@
 import React, { useContext } from 'react';
 import { AppContext } from '../context/AppContext';
-import { Protected } from '../components/Protected';
 import {
   Play,
   Pause,

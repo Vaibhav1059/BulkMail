@@ -1,7 +1,6 @@
-import React, { useContext } from 'react';
+import React, { useState, useContext } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
-import { Protected } from '../components/Protected';
 import {
   Mail,
   Send,
@@ -13,14 +12,26 @@ import {
   TrendingUp,
   Plus,
   CheckCircle,
-  Activity
+  Activity,
+  Edit2,
+  X
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { analyticsData } from '../utils/mockData';
 
 export const Dashboard = () => {
-  const { campaigns, deleteCampaign, cancelCampaignSchedule, currentUserRole, settings, auditLogs } = useContext(AppContext);
+  const { campaigns, deleteCampaign, cancelCampaignSchedule, updateCampaignSchedule, settings, auditLogs } = useContext(AppContext);
   const navigate = useNavigate();
+
+  const [rescheduleCampaign, setRescheduleCampaign] = useState(null);
+  const [newScheduleDate, setNewScheduleDate] = useState('');
+
+  const formatDateTimeLocal = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    const tzOffset = date.getTimezoneOffset() * 60000;
+    return new Date(date.getTime() - tzOffset).toISOString().slice(0, 16);
+  };
 
   // Compute live Stats
   const totalCampaigns = campaigns.length;
@@ -62,15 +73,13 @@ export const Dashboard = () => {
           <p className="text-sm text-slate-500">Here is what is happening with your campaigns today.</p>
         </div>
         
-        {/* Create campaign quick button - restricted to Admin & Manager */}
-        <Protected allowedRoles={['Admin', 'Manager']} fallback="hide">
-          <Link
-            to="/campaigns/new"
-            className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-violet-650 hover:from-indigo-550 hover:to-violet-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-300 shadow-sm hover:shadow-md"
-          >
-            <Plus size={16} /> Create Campaign
-          </Link>
-        </Protected>
+        {/* Create campaign quick button */}
+        <Link
+          to="/campaigns/new"
+          className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-violet-650 hover:from-indigo-550 hover:to-violet-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-300 shadow-sm hover:shadow-md"
+        >
+          <Plus size={16} /> Create Campaign
+        </Link>
       </div>
 
       {/* Stats Cards */}
@@ -228,30 +237,39 @@ export const Dashboard = () => {
                             )}
 
                             {camp.status === 'Scheduled' && (
-                              <Protected allowedRoles={['Admin', 'Manager']} fallback="hide">
-                                <button
-                                  onClick={async () => {
-                                    if (confirm(`Are you sure you want to cancel scheduling for campaign "${camp.name}"? This will return it to a Draft and release scheduled recipients.`)) {
-                                      await cancelCampaignSchedule(camp.id);
-                                    }
-                                  }}
-                                  className="p-1.5 bg-amber-50 text-amber-600 hover:bg-amber-600 hover:text-white rounded border border-amber-100 transition-all duration-300"
-                                  title="Cancel Schedule"
-                                >
-                                  <CalendarX size={12} />
-                                </button>
-                              </Protected>
+                              <button
+                                onClick={() => {
+                                  setRescheduleCampaign(camp);
+                                  setNewScheduleDate(formatDateTimeLocal(camp.scheduleDate));
+                                }}
+                                className="p-1.5 bg-amber-50 text-amber-600 hover:bg-amber-550 hover:text-white rounded border border-amber-100 transition-all duration-300"
+                                title="Edit Schedule"
+                              >
+                                <Edit2 size={12} />
+                              </button>
                             )}
 
-                            <Protected allowedRoles={['Admin']} fallback="hide">
+                            {camp.status === 'Scheduled' && (
                               <button
-                                onClick={() => deleteCampaign(camp.id)}
-                                className="p-1.5 bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white rounded border border-rose-100 transition-all duration-300"
-                                title="Delete Campaign"
+                                onClick={async () => {
+                                  if (confirm(`Are you sure you want to cancel scheduling for campaign "${camp.name}"? This will return it to a Draft and release scheduled recipients.`)) {
+                                    await cancelCampaignSchedule(camp.id);
+                                  }
+                                }}
+                                className="p-1.5 bg-amber-50 text-amber-600 hover:bg-amber-600 hover:text-white rounded border border-amber-100 transition-all duration-300"
+                                  title="Cancel Schedule"
                               >
-                                <Trash2 size={12} />
+                                <CalendarX size={12} />
                               </button>
-                            </Protected>
+                            )}
+
+                            <button
+                              onClick={() => deleteCampaign(camp.id)}
+                              className="p-1.5 bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white rounded border border-rose-100 transition-all duration-300"
+                              title="Delete Campaign"
+                            >
+                              <Trash2 size={12} />
+                            </button>
                           </td>
                         </tr>
                       );
@@ -399,6 +417,67 @@ export const Dashboard = () => {
           </div>
         </div>
       </div>
+
+      {rescheduleCampaign && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-xl max-w-sm w-full p-6 shadow-xl relative text-left">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Reschedule Campaign</h3>
+              <button
+                type="button"
+                onClick={() => setRescheduleCampaign(null)}
+                className="text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+              Select a new date and time to send "<strong>{rescheduleCampaign.name}</strong>":
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[10px] text-slate-500 uppercase tracking-wider font-bold mb-1">New Date & Time</label>
+                <input
+                  type="datetime-local"
+                  value={newScheduleDate}
+                  onChange={(e) => setNewScheduleDate(e.target.value)}
+                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-650"
+                  required
+                />
+              </div>
+
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setRescheduleCampaign(null)}
+                  className="btn-secondary flex-1 py-2 text-xs font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!newScheduleDate) {
+                      alert('Please select a valid date and time.');
+                      return;
+                    }
+                    if (new Date(newScheduleDate) <= new Date()) {
+                      alert('Please select a date and time in the future.');
+                      return;
+                    }
+                    await updateCampaignSchedule(rescheduleCampaign.id, newScheduleDate);
+                    setRescheduleCampaign(null);
+                  }}
+                  className="btn-primary flex-1 py-2 text-xs font-semibold"
+                >
+                  Save Schedule
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

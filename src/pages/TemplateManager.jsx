@@ -1,6 +1,5 @@
 import React, { useState, useContext } from 'react';
 import { AppContext } from '../context/AppContext';
-import { Protected } from '../components/Protected';
 import {
   FileCode,
   Sparkles,
@@ -220,8 +219,7 @@ export const TemplateManager = () => {
   );
 
   return (
-    <Protected allowedRoles={['Admin', 'Manager']}>
-      <div className="space-y-6">
+    <div className="space-y-6">
         {/* Title Bar */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
@@ -738,7 +736,6 @@ export const TemplateManager = () => {
           </div>
         )}
       </div>
-    </Protected>
   );
 };
 

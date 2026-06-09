@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { AppContext, API_BASE } from '../context/AppContext';
-import { Protected } from '../components/Protected';
 import { useNavigate } from 'react-router-dom';
 import './AuditLogs.css';
 import {

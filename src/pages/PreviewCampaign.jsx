@@ -1,7 +1,6 @@
 import React, { useContext, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
-import { Protected } from '../components/Protected';
 import {
   Eye,
   CheckCircle,
@@ -57,18 +56,41 @@ export const PreviewCampaign = () => {
     }
 
     const compile = (text) => {
-      return text
+      let compiled = text || '';
+      compiled = compiled
         .replace(/{{name}}/g, sampleRecord.name)
         .replace(/{{email}}/g, sampleRecord.email)
-        .replace(/{{company}}/g, sampleRecord.company)
+        .replace(/{{company}}/g, sampleRecord.company);
+
+      if (hasCSV && csvData.validationReport && csvData.validationReport.rows.length > 0) {
+        const firstValid = csvData.validationReport.rows.find(r => r.status === 'Valid');
+        if (firstValid && firstValid.data) {
+          Object.keys(firstValid.data).forEach(key => {
+            const regex = new RegExp(`{{${key}}}`, 'g');
+            compiled = compiled.replace(regex, firstValid.data[key] || '');
+          });
+        }
+      }
+
+      return compiled
         .replace(/\n\n/g, '</p><p style="margin-top: 10px; margin-bottom: 10px;">')
         .replace(/\n/g, '<br/>');
     };
 
-    const compiledSubject = rawSubject
+    let compiledSubject = rawSubject
       .replace(/{{name}}/g, sampleRecord.name)
       .replace(/{{email}}/g, sampleRecord.email)
       .replace(/{{company}}/g, sampleRecord.company);
+
+    if (hasCSV && csvData.validationReport && csvData.validationReport.rows.length > 0) {
+      const firstValid = csvData.validationReport.rows.find(r => r.status === 'Valid');
+      if (firstValid && firstValid.data) {
+        Object.keys(firstValid.data).forEach(key => {
+          const regex = new RegExp(`{{${key}}}`, 'g');
+          compiledSubject = compiledSubject.replace(regex, firstValid.data[key] || '');
+        });
+      }
+    }
 
     const compiledBody = compile(rawBody);
 

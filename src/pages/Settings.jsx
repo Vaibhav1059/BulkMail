@@ -1,6 +1,5 @@
 import React, { useState, useContext } from 'react';
 import { AppContext, API_BASE } from '../context/AppContext';
-import { Protected } from '../components/Protected';
 import {
   Server,
   Eye,
@@ -22,6 +21,82 @@ export const Settings = () => {
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState(null); // 'success' | 'error' | null
   const [isSaved, setIsSaved] = useState(false);
+
+  const [provider, setProvider] = useState(() => {
+    if (settings.smtp.host === 'smtp.sendgrid.net' && settings.smtp.username === 'apikey') return 'sendgrid';
+    if (settings.smtp.host === 'smtp.mailgun.org') return 'mailgun';
+    if (settings.smtp.host && settings.smtp.host.includes('.amazonaws.com')) return 'ses';
+    return 'smtp';
+  });
+
+  const [sesRegion, setSesRegion] = useState(() => {
+    if (settings.smtp.host && settings.smtp.host.includes('.amazonaws.com')) {
+      const match = settings.smtp.host.match(/email-smtp\.(.*?)\.amazonaws\.com/);
+      return match ? match[1] : 'us-east-1';
+    }
+    return 'us-east-1';
+  });
+
+  const handleProviderChange = (e) => {
+    const prov = e.target.value;
+    setProvider(prov);
+    
+    if (prov === 'sendgrid') {
+      setSmtp(prev => ({
+        ...prev,
+        host: 'smtp.sendgrid.net',
+        port: '587',
+        username: 'apikey',
+        encryption: 'TLS'
+      }));
+    } else if (prov === 'mailgun') {
+      setSmtp(prev => ({
+        ...prev,
+        host: 'smtp.mailgun.org',
+        port: '587',
+        username: '',
+        encryption: 'TLS'
+      }));
+    } else if (prov === 'ses') {
+      setSmtp(prev => ({
+        ...prev,
+        host: `email-smtp.${sesRegion}.amazonaws.com`,
+        port: '587',
+        username: '',
+        encryption: 'TLS'
+      }));
+    } else {
+      setSmtp(prev => ({
+        ...prev,
+        host: '',
+        port: '587',
+        username: '',
+        encryption: 'TLS'
+      }));
+    }
+  };
+
+  const handleRegionChange = (e) => {
+    const reg = e.target.value;
+    setSesRegion(reg);
+    setSmtp(prev => ({
+      ...prev,
+      host: `email-smtp.${reg}.amazonaws.com`
+    }));
+  };
+
+  const getPasswordLabel = () => {
+    switch (provider) {
+      case 'sendgrid':
+        return 'SendGrid API Key';
+      case 'mailgun':
+        return 'Mailgun SMTP Password';
+      case 'ses':
+        return 'Amazon SES SMTP Password';
+      default:
+        return 'Password / API Key';
+    }
+  };
 
   const handleSmtpChange = (e) => {
     const { name, value } = e.target;
@@ -76,8 +151,7 @@ export const Settings = () => {
   };
 
   return (
-    <Protected allowedRoles={['Admin']}>
-      <form onSubmit={handleSave} className="space-y-6">
+    <form onSubmit={handleSave} className="space-y-6">
         {/* Title */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
@@ -107,6 +181,40 @@ export const Settings = () => {
               <Server size={14} className="text-indigo-600" /> SMTP Server Credentials
             </h3>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs pb-3 border-b border-slate-100">
+              {/* Delivery Provider */}
+              <div className="space-y-1 md:col-span-2">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Delivery Provider Gateway</label>
+                <select
+                  value={provider}
+                  onChange={handleProviderChange}
+                  className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-650 font-semibold"
+                >
+                  <option value="smtp">Standard Custom SMTP Server</option>
+                  <option value="sendgrid">SendGrid API / SMTP Gateway</option>
+                  <option value="mailgun">Mailgun API / SMTP Gateway</option>
+                  <option value="ses">Amazon SES API / SMTP Gateway</option>
+                </select>
+              </div>
+
+              {provider === 'ses' && (
+                <div className="space-y-1 md:col-span-2">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">AWS SES Region</label>
+                  <select
+                    value={sesRegion}
+                    onChange={handleRegionChange}
+                    className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-655"
+                  >
+                    <option value="us-east-1">US East (N. Virginia) - us-east-1</option>
+                    <option value="us-west-2">US West (Oregon) - us-west-2</option>
+                    <option value="eu-west-1">Europe (Ireland) - eu-west-1</option>
+                    <option value="ap-southeast-1">Asia Pacific (Singapore) - ap-southeast-1</option>
+                    <option value="ap-south-1">Asia Pacific (Mumbai) - ap-south-1</option>
+                  </select>
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
               {/* Host */}
               <div className="space-y-1">
@@ -117,7 +225,8 @@ export const Settings = () => {
                   value={smtp.host}
                   onChange={handleSmtpChange}
                   placeholder="e.g. smtp.mailgun.org"
-                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-650"
+                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-650 disabled:bg-slate-50 disabled:text-slate-450"
+                  disabled={provider !== 'smtp'}
                   required
                 />
               </div>
@@ -131,7 +240,8 @@ export const Settings = () => {
                   value={smtp.port}
                   onChange={handleSmtpChange}
                   placeholder="e.g. 587 or 465"
-                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-650"
+                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-650 disabled:bg-slate-50 disabled:text-slate-450"
+                  disabled={provider !== 'smtp'}
                   required
                 />
               </div>
@@ -144,22 +254,23 @@ export const Settings = () => {
                   name="username"
                   value={smtp.username}
                   onChange={handleSmtpChange}
-                  placeholder="e.g. postmaster@yourdomain.com"
-                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-650"
+                  placeholder={provider === 'sendgrid' ? 'apikey' : 'e.g. postmaster@yourdomain.com'}
+                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-650 disabled:bg-slate-50 disabled:text-slate-450"
+                  disabled={provider === 'sendgrid'}
                   required
                 />
               </div>
 
               {/* Password */}
               <div className="space-y-1">
-                <label className="block text-[10px] font-bold text-slate-505 uppercase tracking-wider">Password / API Key</label>
+                <label className="block text-[10px] font-bold text-slate-505 uppercase tracking-wider">{getPasswordLabel()}</label>
                 <div className="relative">
                   <input
                     type={showPassword ? 'text' : 'password'}
                     name="password"
                     value={smtp.password}
                     onChange={handleSmtpChange}
-                    placeholder="SMTP authentication secret"
+                    placeholder="SMTP credentials secret"
                     className="w-full bg-white border border-slate-200 rounded-lg pl-3 pr-10 py-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-650"
                     required
                   />
@@ -180,7 +291,8 @@ export const Settings = () => {
                   name="encryption"
                   value={smtp.encryption}
                   onChange={handleSmtpChange}
-                  className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-650"
+                  className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-650 disabled:bg-slate-50 disabled:text-slate-450"
+                  disabled={provider !== 'smtp'}
                 >
                   <option value="TLS">STARTTLS (587)</option>
                   <option value="SSL">SSL/TLS (465)</option>
@@ -331,7 +443,6 @@ export const Settings = () => {
           </div>
         </div>
       </form>
-    </Protected>
   );
 };
 export default Settings;

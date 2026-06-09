@@ -348,6 +348,22 @@ export const CSVUploadMapping = () => {
                     ))}
                   </select>
                 </div>
+
+                {csvData.headers.length > 0 && (
+                  <div className="pt-3 border-t border-slate-100 space-y-2">
+                    <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider block">Detected Custom Column Tags</span>
+                    <p className="text-[10px] text-slate-400 leading-normal">
+                      Any column from your file can be used directly in your email body as a dynamic variable. Simply insert the header name in double curly braces:
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {csvData.headers.map((h, i) => (
+                        <span key={i} className="px-2 py-0.5 text-[9px] font-mono font-semibold bg-slate-50 border border-slate-200 text-slate-600 rounded shadow-sm select-all cursor-pointer" title="Copy text">
+                          {"{{"}{h}{"}}"}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
