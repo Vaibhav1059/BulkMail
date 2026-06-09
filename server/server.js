@@ -176,11 +176,15 @@ app.post('/api/campaigns/:id/cancel-schedule', async (req, res) => {
   }
 });
 
-// 4. Fetch SMTP Settings
+// 4. Fetch SMTP Settings (with masked password for security)
 app.get('/api/settings', async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM settings WHERE id = 1;');
-    res.json(rows[0] || {});
+    const config = rows[0] || {};
+    if (config.password) {
+      config.password = '••••••••';
+    }
+    res.json(config);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -190,14 +194,27 @@ app.get('/api/settings', async (req, res) => {
 app.post('/api/settings', async (req, res) => {
   const { host, port, username, password, encryption, senderEmail, senderName, emailsPerHour, emailsPerDay, delaySeconds, connectionTimeout, retryAttempts } = req.body;
   try {
-    await pool.query(
-      `UPDATE settings SET 
-        host = ?, port = ?, username = ?, password = ?, encryption = ?, 
-        senderEmail = ?, senderName = ?, emailsPerHour = ?, emailsPerDay = ?, 
-        delaySeconds = ?, connectionTimeout = ?, retryAttempts = ? 
-       WHERE id = 1;`,
-      [host, port, username, password, encryption, senderEmail, senderName, emailsPerHour, emailsPerDay, delaySeconds, connectionTimeout, retryAttempts]
-    );
+    if (password === '••••••••') {
+      // Retain existing password in database
+      await pool.query(
+        `UPDATE settings SET 
+          host = ?, port = ?, username = ?, encryption = ?, 
+          senderEmail = ?, senderName = ?, emailsPerHour = ?, emailsPerDay = ?, 
+          delaySeconds = ?, connectionTimeout = ?, retryAttempts = ? 
+         WHERE id = 1;`,
+        [host, port, username, encryption, senderEmail, senderName, emailsPerHour, emailsPerDay, delaySeconds, connectionTimeout, retryAttempts]
+      );
+    } else {
+      // Update with new password
+      await pool.query(
+        `UPDATE settings SET 
+          host = ?, port = ?, username = ?, password = ?, encryption = ?, 
+          senderEmail = ?, senderName = ?, emailsPerHour = ?, emailsPerDay = ?, 
+          delaySeconds = ?, connectionTimeout = ?, retryAttempts = ? 
+         WHERE id = 1;`,
+        [host, port, username, password, encryption, senderEmail, senderName, emailsPerHour, emailsPerDay, delaySeconds, connectionTimeout, retryAttempts]
+      );
+    }
     await logEvent('Administrator', 'Updated SMTP Server Settings', 'Success');
     res.json({ success: true });
   } catch (err) {
@@ -362,9 +379,16 @@ app.delete('/api/templates/:id', async (req, res) => {
 
 // 7. Verify SMTP Connection (Test SMTP Route)
 app.post('/api/settings/verify', async (req, res) => {
-  const { host, port, username, password, encryption, senderEmail } = req.body;
+  let { host, port, username, password, encryption, senderEmail } = req.body;
   
-  if (host.includes('mock') || password.includes('mock')) {
+  if (password === '••••••••') {
+    const [rows] = await pool.query('SELECT password FROM settings WHERE id = 1;');
+    if (rows[0] && rows[0].password) {
+      password = rows[0].password;
+    }
+  }
+  
+  if (host.includes('mock') || (password && password.includes('mock'))) {
     // Simulate latency for mock verification
     await new Promise(resolve => setTimeout(resolve, 1500));
     return res.json({ success: true, isMock: true, message: 'Mock SMTP verification successful.' });
