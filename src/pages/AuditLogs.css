@@ -692,6 +692,17 @@
   transform: translateY(-1px);
 }
 
+.audit-icon-btn-resend {
+  color: var(--success-hover);
+  background-color: var(--success-bg);
+  border-color: var(--success-border);
+}
+.audit-icon-btn-resend:hover {
+  background-color: var(--success-color);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
 /* 5. STATUS BADGE SYSTEM */
 .audit-badge {
   display: inline-flex;

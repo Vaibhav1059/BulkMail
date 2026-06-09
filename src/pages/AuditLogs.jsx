@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { AppContext, API_BASE } from '../context/AppContext';
 import { Protected } from '../components/Protected';
+import { useNavigate } from 'react-router-dom';
 import './AuditLogs.css';
 import {
   FileText,
@@ -35,8 +36,12 @@ export const AuditLogs = () => {
     deleteAuditLog,
     deleteAuditLogsBulk,
     restoreAuditLogsBulk,
-    clearCampaignHistory
+    clearCampaignHistory,
+    sendingState,
+    launchCampaign
   } = useContext(AppContext);
+
+  const navigate = useNavigate();
 
   // Search, tabs, filter states
   const [viewTab, setViewTab] = useState('active'); // 'active' | 'trash'
@@ -145,6 +150,68 @@ export const AuditLogs = () => {
     }
   };
 
+  // Resend campaign action helper
+  const handleResendCampaign = async (log) => {
+    if (sendingState && sendingState.status === 'sending') {
+      showToast('Cannot launch campaign. Another campaign is currently sending.', 'error');
+      return;
+    }
+
+    const confirmResend = window.confirm(`Are you sure you want to resend the campaign "${log.campaignName}" to the same recipients?`);
+    if (!confirmResend) return;
+
+    try {
+      showToast('Fetching campaign template & recipients...', 'info');
+
+      // 1. Fetch recipients
+      const resRec = await fetch(`${API_BASE}/campaigns/${log.campaignId}/recipients`);
+      if (!resRec.ok) throw new Error('Failed to load recipients list.');
+      const recipientsList = await resRec.json();
+
+      // 2. Fetch campaign template details
+      let bodyText = log.body || '';
+      try {
+        const resCamp = await fetch(`${API_BASE}/campaigns/${log.campaignId}`);
+        if (resCamp.ok) {
+          const campData = await resCamp.json();
+          bodyText = campData.body || bodyText;
+        }
+      } catch (err) {
+        console.warn('Could not fetch campaign body template, using log fallback.', err);
+      }
+
+      if (!recipientsList || recipientsList.length === 0) {
+        showToast('No recipients found to resend to.', 'error');
+        return;
+      }
+
+      showToast('Resending campaign...', 'info');
+
+      // 3. Map recipients and launch
+      const formattedRecipients = recipientsList.map(r => ({
+        name: r.name,
+        email: r.email,
+        company: r.company
+      }));
+
+      await launchCampaign(
+        log.campaignId,
+        log.campaignName,
+        log.subject || 'No Subject',
+        bodyText,
+        formattedRecipients,
+        null, // range
+        1, // concurrency
+        0.5 // delay
+      );
+
+      navigate('/sending-monitor');
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to resend campaign: ' + err.message, 'error');
+    }
+  };
+
   // Checkbox helpers
   const handleSelectRow = (id) => {
     setSelectedLogs(prev =>
@@ -181,6 +248,9 @@ export const AuditLogs = () => {
       showToast('Failed to export: ' + err.message, 'error');
     }
   };
+
+  // Selected single log variable for resending
+  const selectedLog = selectedLogs.length === 1 ? auditLogs.find(l => l.id === selectedLogs[0]) : null;
 
   // Main Audit list processing (Tab filtration -> Text Search -> Status match)
   const filteredLogs = auditLogs.filter(log => {
@@ -401,6 +471,16 @@ export const AuditLogs = () => {
 
             {/* Bulk Actions Buttons Panel */}
             <div className="audit-selected-actions">
+              {selectedLogs.length === 1 && selectedLog && selectedLog.campaignId && viewTab === 'active' && (
+                <button
+                  onClick={() => handleResendCampaign(selectedLog)}
+                  className="audit-btn audit-btn-success audit-btn-bulk"
+                  type="button"
+                >
+                  <RefreshCw size={12} /> Resend Selected Campaign
+                </button>
+              )}
+
               {viewTab === 'active' ? (
                 <>
                   <button
@@ -573,6 +653,16 @@ export const AuditLogs = () => {
                         >
                           <Eye size={12} />
                         </button>
+
+                        {log.campaignId && viewTab === 'active' && (
+                          <button
+                            onClick={() => handleResendCampaign(log)}
+                            className="audit-icon-btn audit-icon-btn-resend"
+                            title="Resend Campaign to Same Recipients"
+                          >
+                            <RefreshCw size={12} />
+                          </button>
+                        )}
 
                         {viewTab === 'active' ? (
                           <button
@@ -949,6 +1039,15 @@ export const AuditLogs = () => {
               
               {/* Purge & Delete controls */}
               <div className="audit-modal-footer-left">
+                {detailLog.campaignId && (
+                  <button
+                    onClick={() => handleResendCampaign(detailLog)}
+                    className="audit-btn audit-btn-success"
+                  >
+                    <RefreshCw size={12} /> Resend Campaign
+                  </button>
+                )}
+
                 {detailLog.campaignId && (
                   <button
                     onClick={() => setConfirmAction({
