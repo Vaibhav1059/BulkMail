@@ -27,3 +27,11 @@ dist-ssr
 server/db.json
 server/sent_emails/
 .env
+
+# Runtime generated files
+tmp_sched.json
+server_stdout.log
+server_stderr.log
+
+# Bundled Node binary (not needed in repo)
+.node/
