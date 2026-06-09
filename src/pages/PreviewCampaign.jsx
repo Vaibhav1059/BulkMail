@@ -113,14 +113,20 @@ export const PreviewCampaign = () => {
       ? Math.max(0, parseInt(rangeTo) - parseInt(rangeFrom) + 1)
       : validationSummary.valid;
 
+    const validRecipients = csvData.validationReport ? csvData.validationReport.rows.filter(r => r.status === 'Valid') : [];
+
     // 1. Save campaign draft to campaigns list
     const newCampId = await saveCampaign({
       name: campaignWorkspace.name,
       subject: campaignWorkspace.subject,
       body: campaignWorkspace.body,
       recipientsCount: finalRecipientsCount,
-      scheduleDate: campaignWorkspace.scheduleOption === 'schedule' ? campaignWorkspace.scheduleDate : null,
-      status: campaignWorkspace.scheduleOption === 'schedule' ? 'Scheduled' : 'Draft'
+      scheduleDate: (campaignWorkspace.scheduleOption === 'schedule' && campaignWorkspace.scheduleDate) 
+        ? new Date(campaignWorkspace.scheduleDate).toISOString() 
+        : null,
+      status: campaignWorkspace.scheduleOption === 'schedule' ? 'Scheduled' : 'Draft',
+      recipients: campaignWorkspace.scheduleOption === 'schedule' ? validRecipients : null,
+      mappedFields: campaignWorkspace.scheduleOption === 'schedule' ? csvData.mappedFields : null
     });
 
     if (campaignWorkspace.scheduleOption === 'schedule') {
@@ -128,7 +134,6 @@ export const PreviewCampaign = () => {
       navigate('/');
     } else {
       // 2. Launch live simulation and navigate to Sending Monitor
-      const validRecipients = csvData.validationReport.rows.filter(r => r.status === 'Valid');
       launchCampaign(newCampId, campaignWorkspace.name, campaignWorkspace.subject, campaignWorkspace.body, validRecipients, range, concurrency, delayOverride);
       navigate('/sending-monitor');
     }

@@ -72,9 +72,8 @@ export const UserManagement = () => {
           {users.map((user) => (
             <div
               key={user.id}
-              className={`bg-white border rounded-xl p-5 flex items-center justify-between transition-all duration-300 hover:border-slate-350 shadow-sm ${
-                user.status === 'Inactive' ? 'opacity-60 border-slate-200' : 'border-slate-200'
-              }`}
+              className={`bg-white border rounded-xl p-5 flex items-center justify-between transition-all duration-300 hover:border-slate-350 shadow-sm ${user.status === 'Inactive' ? 'opacity-60 border-slate-200' : 'border-slate-200'
+                }`}
             >
               {/* Profile info */}
               <div className="flex items-center gap-4">
@@ -93,7 +92,7 @@ export const UserManagement = () => {
                     )}
                   </h4>
                   <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5"><Mail size={10} className="text-slate-400" /> {user.email}</p>
-                  
+
                   {/* Edit role switcher & Details edit */}
                   <div className="mt-3 flex items-center gap-3.5 flex-wrap">
                     <div className="flex items-center gap-1.5">
@@ -122,9 +121,8 @@ export const UserManagement = () => {
 
               {/* Status toggle controls */}
               <div className="text-right flex flex-col items-end justify-between h-full space-y-4">
-                <span className={`px-2 py-0.5 text-[9px] font-bold rounded uppercase tracking-wider ${
-                  user.status === 'Active' ? 'bg-emerald-50 text-emerald-700 border border-emerald-150' : 'bg-slate-100 text-slate-600 border border-slate-200'
-                }`}>
+                <span className={`px-2 py-0.5 text-[9px] font-bold rounded uppercase tracking-wider ${user.status === 'Active' ? 'bg-emerald-50 text-emerald-700 border border-emerald-150' : 'bg-slate-100 text-slate-600 border border-slate-200'
+                  }`}>
                   {user.status}
                 </span>
 
@@ -132,11 +130,10 @@ export const UserManagement = () => {
                   <button
                     disabled={user.id === '1'} // Safeguard main admin
                     onClick={() => toggleUserStatus(user.id)}
-                    className={`p-1.5 rounded-lg border transition-all duration-300 ${
-                      user.status === 'Active'
+                    className={`p-1.5 rounded-lg border transition-all duration-300 ${user.status === 'Active'
                         ? 'text-emerald-600 border-emerald-200 hover:bg-emerald-50 bg-emerald-50/20'
                         : 'text-slate-400 border-slate-200 hover:bg-slate-50'
-                    }`}
+                      }`}
                     title={user.status === 'Active' ? 'Deactivate User' : 'Activate User'}
                   >
                     {user.status === 'Active' ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
@@ -149,11 +146,10 @@ export const UserManagement = () => {
                         deleteUser(user.id);
                       }
                     }}
-                    className={`p-1.5 rounded-lg border transition-all duration-300 ${
-                      user.id === '1'
+                    className={`p-1.5 rounded-lg border transition-all duration-300 ${user.id === '1'
                         ? 'text-slate-200 border-slate-100 cursor-not-allowed bg-slate-50/50'
                         : 'text-rose-600 border-rose-200 hover:bg-rose-600 hover:text-white bg-rose-50/20'
-                    }`}
+                      }`}
                     title="Delete User"
                   >
                     <Trash2 size={20} />
@@ -168,16 +164,18 @@ export const UserManagement = () => {
         {showAddModal && (
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-white border border-slate-200 rounded-xl max-w-sm w-full p-6 shadow-xl relative">
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="absolute top-4 right-4 text-slate-400 hover:text-slate-650 transition-colors"
-              >
-                <X size={16} />
-              </button>
-
-              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-1.5">
-                <UserPlus size={16} className="text-indigo-650" /> Add Console User
-              </h3>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <UserPlus size={16} className="text-indigo-650" /> Add Console User
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="text-slate-400 hover:text-slate-655 transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
 
               <form onSubmit={handleSaveUser} className="space-y-4 text-xs">
                 {/* Name */}
@@ -240,16 +238,18 @@ export const UserManagement = () => {
         {editingUser && (
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-white border border-slate-200 rounded-xl max-w-sm w-full p-6 shadow-xl relative">
-              <button
-                onClick={() => setEditingUser(null)}
-                className="absolute top-4 right-4 text-slate-400 hover:text-slate-655 transition-colors"
-              >
-                <X size={16} />
-              </button>
-
-              <h3 className="text-sm font-bold text-slate-805 uppercase tracking-wider mb-4 flex items-center gap-1.5">
-                <UserCheck size={16} className="text-indigo-650" /> Edit User Profile
-              </h3>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-sm font-bold text-slate-855 uppercase tracking-wider flex items-center gap-1.5">
+                  <UserCheck size={16} className="text-indigo-650" /> Edit User Profile
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setEditingUser(null)}
+                  className="text-slate-400 hover:text-slate-655 transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
 
               <form onSubmit={handleEditSubmit} className="space-y-4 text-xs">
                 {/* Name */}

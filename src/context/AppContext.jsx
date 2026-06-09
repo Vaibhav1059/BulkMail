@@ -55,45 +55,93 @@ export const AppProvider = ({ children }) => {
   // Load initial MySQL data from API
   const refreshData = async () => {
     try {
-      const resCamp = await fetch(`${API_BASE}/campaigns`);
-      const dataCamp = await resCamp.json();
-      setCampaigns(dataCamp);
-
-      const resLogs = await fetch(`${API_BASE}/logs`);
-      const dataLogs = await resLogs.json();
-      setAuditLogs(dataLogs);
-
-      const resUsers = await fetch(`${API_BASE}/users`);
-      const dataUsers = await resUsers.json();
-      setUsers(dataUsers);
-
-      const resSettings = await fetch(`${API_BASE}/settings`);
-      const dataSettings = await resSettings.json();
-
-      const resTemplates = await fetch(`${API_BASE}/templates`);
-      const dataTemplates = await resTemplates.json();
-      setTemplates(dataTemplates);
-      
-      setSettings({
-        smtp: {
-          host: dataSettings.host || '',
-          port: dataSettings.port || '',
-          username: dataSettings.username || '',
-          password: dataSettings.password || '',
-          encryption: dataSettings.encryption || 'TLS',
-          senderEmail: dataSettings.senderEmail || '',
-          senderName: dataSettings.senderName || '',
-        },
-        limits: {
-          emailsPerHour: dataSettings.emailsPerHour || 5000,
-          emailsPerDay: dataSettings.emailsPerDay || 50000,
-          delaySeconds: dataSettings.delaySeconds || 0.5,
-        },
-        timeouts: {
-          connectionTimeout: dataSettings.connectionTimeout || 10,
-          retryAttempts: dataSettings.retryAttempts || 3,
+      // 1. Fetch campaigns
+      try {
+        const resCamp = await fetch(`${API_BASE}/campaigns`);
+        if (resCamp.ok) {
+          const dataCamp = await resCamp.json();
+          setCampaigns(Array.isArray(dataCamp) ? dataCamp : []);
+        } else {
+          setCampaigns([]);
         }
-      });
+      } catch (e) {
+        console.error('Failed to fetch campaigns:', e);
+        setCampaigns([]);
+      }
+
+      // 2. Fetch logs
+      try {
+        const resLogs = await fetch(`${API_BASE}/logs`);
+        if (resLogs.ok) {
+          const dataLogs = await resLogs.json();
+          setAuditLogs(Array.isArray(dataLogs) ? dataLogs : []);
+        } else {
+          setAuditLogs([]);
+        }
+      } catch (e) {
+        console.error('Failed to fetch audit logs:', e);
+        setAuditLogs([]);
+      }
+
+      // 3. Fetch users
+      try {
+        const resUsers = await fetch(`${API_BASE}/users`);
+        if (resUsers.ok) {
+          const dataUsers = await resUsers.json();
+          setUsers(Array.isArray(dataUsers) ? dataUsers : []);
+        } else {
+          setUsers([]);
+        }
+      } catch (e) {
+        console.error('Failed to fetch users:', e);
+        setUsers([]);
+      }
+
+      // 4. Fetch settings
+      try {
+        const resSettings = await fetch(`${API_BASE}/settings`);
+        if (resSettings.ok) {
+          const dataSettings = await resSettings.json();
+          if (dataSettings && !dataSettings.error) {
+            setSettings({
+              smtp: {
+                host: dataSettings.host || '',
+                port: dataSettings.port || '',
+                username: dataSettings.username || '',
+                password: dataSettings.password || '',
+                encryption: dataSettings.encryption || 'TLS',
+                senderEmail: dataSettings.senderEmail || '',
+                senderName: dataSettings.senderName || '',
+              },
+              limits: {
+                emailsPerHour: dataSettings.emailsPerHour || 5000,
+                emailsPerDay: dataSettings.emailsPerDay || 50000,
+                delaySeconds: dataSettings.delaySeconds || 0.5,
+              },
+              timeouts: {
+                connectionTimeout: dataSettings.connectionTimeout || 10,
+                retryAttempts: dataSettings.retryAttempts || 3,
+              }
+            });
+          }
+        }
+      } catch (e) {
+        console.error('Failed to fetch settings:', e);
+      }
+
+      // 5. Fetch templates
+      try {
+        const resTemplates = await fetch(`${API_BASE}/templates`);
+        if (resTemplates.ok) {
+          const dataTemplates = await resTemplates.json();
+          setTemplates(Array.isArray(dataTemplates) ? dataTemplates : []);
+        } else {
+          setTemplates([]);
+        }
+      } catch (e) {
+        console.error('Failed to fetch templates:', e);
+        setTemplates([]);
+      }
     } catch (err) {
       console.error('Failed to connect to full-stack API server:', err);
     }
@@ -294,6 +342,64 @@ export const AppProvider = ({ children }) => {
     }
   };
 
+  const deleteAuditLog = async (id, permanent = false) => {
+    try {
+      await fetch(`${API_BASE}/logs/${id}?permanent=${permanent}`, { method: 'DELETE' });
+      await refreshData();
+    } catch (err) {
+      console.error('Failed to delete audit log:', err);
+    }
+  };
+
+  const deleteAuditLogsBulk = async (ids, permanent = false) => {
+    try {
+      await fetch(`${API_BASE}/logs/delete-bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids, permanent })
+      });
+      await refreshData();
+    } catch (err) {
+      console.error('Failed to bulk delete audit logs:', err);
+    }
+  };
+
+  const restoreAuditLogsBulk = async (ids) => {
+    try {
+      await fetch(`${API_BASE}/logs/restore-bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids })
+      });
+      await refreshData();
+    } catch (err) {
+      console.error('Failed to bulk restore audit logs:', err);
+    }
+  };
+
+  const clearCampaignHistory = async (campaignId) => {
+    try {
+      await fetch(`${API_BASE}/campaigns/${campaignId}/history`, { method: 'DELETE' });
+      await refreshData();
+    } catch (err) {
+      console.error('Failed to clear campaign history:', err);
+    }
+  };
+
+  const cancelCampaignSchedule = async (campaignId) => {
+    try {
+      const res = await fetch(`${API_BASE}/campaigns/${campaignId}/cancel-schedule`, {
+        method: 'POST'
+      });
+      if (!res.ok) {
+        throw new Error('Failed to cancel campaign schedule');
+      }
+      await refreshData();
+    } catch (err) {
+      console.error('Error canceling campaign schedule:', err);
+    }
+  };
+
   // Save Settings to MySQL
   const updateSettings = async (newSettings) => {
     const payload = {
@@ -432,7 +538,12 @@ export const AppProvider = ({ children }) => {
       templates,
       saveTemplate,
       updateTemplate,
-      deleteTemplate
+      deleteTemplate,
+      deleteAuditLog,
+      deleteAuditLogsBulk,
+      restoreAuditLogsBulk,
+      clearCampaignHistory,
+      cancelCampaignSchedule
     }}>
       {children}
     </AppContext.Provider>

@@ -314,20 +314,22 @@ CHRONOLOGICAL SYSTEM AUDIT STATEMENTS:
       {/* ADMIN SUMMARY EMAIL NOTIFICATION POPUP */}
       {showAdminSummary && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6 shadow-xl relative">
-            <button
-              onClick={dismissAdminSummary}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-650 transition-colors"
-            >
-              <X size={16} />
-            </button>
-
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-8 h-8 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center">
-                <MailCheck size={18} />
+            <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6 shadow-xl relative">
+              <div className="flex justify-between items-start mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                    <MailCheck size={18} />
+                  </div>
+                  <h3 className="text-sm font-bold text-slate-805 uppercase tracking-wider">Admin Summary Report Dispatched</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={dismissAdminSummary}
+                  className="text-slate-400 hover:text-slate-650 transition-colors shrink-0"
+                >
+                  <X size={16} />
+                </button>
               </div>
-              <h3 className="text-sm font-bold text-slate-805 uppercase tracking-wider">Admin Summary Report Dispatched</h3>
-            </div>
 
             <p className="text-xs text-slate-550 mb-4 leading-relaxed">
               A copy of the campaign delivery analysis report was compiled and emailed to the system administrator inbox (**{settings.smtp.senderEmail || 'sandbox@aerosend.local'}**).

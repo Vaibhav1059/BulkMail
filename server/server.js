@@ -4,7 +4,10 @@ import multer from 'multer';
 import nodemailer from 'nodemailer';
 import fs from 'fs';
 import path from 'path';
+import dotenv from 'dotenv';
 import pool from './db.js';
+
+dotenv.config();
 
 const app = express();
 const port = 5000;
@@ -42,14 +45,31 @@ let activeSendingState = {
 
 let sendingTimer = null;
 
-// Helper to log audit events into MySQL database
-async function logEvent(user, action, status = 'Success') {
+// Helper to log audit events into database
+async function logEvent(user, action, status = 'Success', campaignId = null, extraFields = {}) {
   const id = 'l' + Math.random().toString(36).substr(2, 9);
   const date = new Date().toISOString();
   try {
     await pool.query(
-      'INSERT INTO audit_logs (id, date, user, action, status) VALUES (?, ?, ?, ?, ?);',
-      [id, date, user, action, status]
+      `INSERT INTO audit_logs (
+        id, date, user, action, status, campaignId, campaignName, subject, body, senderEmail, recipientCount, deliveryStatus, openStatus, failureDetails, deletedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL);`,
+      [
+        id,
+        date,
+        user,
+        action,
+        status,
+        campaignId,
+        extraFields.campaignName || null,
+        extraFields.subject || null,
+        extraFields.body || null,
+        extraFields.senderEmail || null,
+        extraFields.recipientCount || 0,
+        extraFields.deliveryStatus || null,
+        extraFields.openStatus || 'Not Opened',
+        extraFields.failureDetails || null
+      ]
     );
   } catch (err) {
     console.error('Failed to log audit event:', err);
@@ -68,23 +88,51 @@ app.get('/api/campaigns', async (req, res) => {
   }
 });
 
+// 1b. Fetch single campaign
+app.get('/api/campaigns/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [rows] = await pool.query('SELECT * FROM campaigns WHERE id = ?;', [id]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Campaign not found' });
+    }
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 2. Save campaign
 app.post('/api/campaigns', async (req, res) => {
-  const { id, name, subject, body, status, date, creator, recipientsCount } = req.body;
+  const { id, name, subject, body, status, date, creator, recipientsCount, scheduleDate, recipients, mappedFields } = req.body;
   try {
     await pool.query(
-      `INSERT INTO campaigns (id, name, subject, body, status, date, creator, recipientsCount, sentCount, failedCount)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0);`,
-      [id, name, subject, body, status, date, creator, recipientsCount]
+      `INSERT INTO campaigns (id, name, subject, body, status, date, creator, recipientsCount, sentCount, failedCount, smtpUsed, sendTime, completionTime, scheduleDate)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, NULL, NULL, ?);`,
+      [id, name, subject, body, status, date, creator, recipientsCount, scheduleDate || null]
     );
-    await logEvent(creator, `Created Campaign "${name}"`, 'Success');
+
+    if (recipients && Array.isArray(recipients) && mappedFields) {
+      for (const rec of recipients) {
+        const emailAddress = rec.email;
+        const nameVal = rec.data[mappedFields.name] || 'Customer';
+        const companyVal = rec.data[mappedFields.company] || 'Enterprise';
+        await pool.query(
+          `INSERT INTO recipients (campaignId, email, name, company, status, reason, sentAt)
+           VALUES (?, ?, ?, ?, 'Pending', '', '');`,
+          [id, emailAddress, nameVal, companyVal]
+        );
+      }
+    }
+
+    await logEvent(creator, `Created Campaign "${name}"`, 'Success', id, { campaignName: name, subject, body, recipientCount: recipientsCount });
     res.json({ success: true, campaignId: id });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 3. Delete campaign
+// 3. Delete campaign (With Cascade cleans)
 app.delete('/api/campaigns/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -95,6 +143,33 @@ app.delete('/api/campaigns/:id', async (req, res) => {
     await pool.query('DELETE FROM recipients WHERE campaignId = ?;', [id]);
     
     await logEvent('Administrator', `Deleted Campaign "${campaignName}"`, 'Success');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 3b. Cancel campaign scheduling
+app.post('/api/campaigns/:id/cancel-schedule', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [camp] = await pool.query('SELECT name FROM campaigns WHERE id = ?;', [id]);
+    if (camp.length === 0) {
+      return res.status(404).json({ error: 'Campaign not found' });
+    }
+    const campaignName = camp[0].name;
+
+    await pool.query(
+      `UPDATE campaigns SET status = 'Draft', scheduleDate = NULL WHERE id = ?;`,
+      [id]
+    );
+
+    await pool.query(
+      `DELETE FROM recipients WHERE campaignId = ?;`,
+      [id]
+    );
+
+    await logEvent('Administrator', `Cancelled Scheduling for Campaign "${campaignName}"`, 'Success', id, { campaignName });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -407,6 +482,22 @@ app.post('/api/upload-csv', upload.single('file'), (req, res) => {
 
 // Fetch SMTP settings helper
 async function getSMTPSettings() {
+  if (process.env.SMTP_HOST) {
+    return {
+      host: process.env.SMTP_HOST,
+      port: process.env.SMTP_PORT || '587',
+      username: process.env.SMTP_USER,
+      password: process.env.SMTP_PASS,
+      encryption: process.env.SMTP_SECURE === 'true' ? 'SSL' : 'TLS',
+      senderEmail: process.env.SMTP_SENDER_EMAIL || process.env.SMTP_USER,
+      senderName: process.env.SMTP_SENDER_NAME || 'System Mailer',
+      emailsPerHour: parseInt(process.env.SMTP_EMAILS_PER_HOUR) || 5000,
+      emailsPerDay: parseInt(process.env.SMTP_EMAILS_PER_DAY) || 50000,
+      delaySeconds: parseFloat(process.env.SMTP_DELAY_SECONDS) || 0.5,
+      connectionTimeout: parseInt(process.env.SMTP_TIMEOUT) || 10,
+      retryAttempts: parseInt(process.env.SMTP_RETRY_ATTEMPTS) || 3
+    };
+  }
   const [rows] = await pool.query('SELECT * FROM settings WHERE id = 1;');
   return rows[0];
 }
@@ -481,8 +572,18 @@ async function processQueueStep() {
 
     const recipient = activeSendingState.recipientData[index];
     const emailAddress = recipient.email;
-    const nameVal = recipient.data[activeSendingState.mappedFields.name] || 'Customer';
-    const companyVal = recipient.data[activeSendingState.mappedFields.company] || 'Enterprise';
+
+    // Support both immediate sending (from frontend CSV) and scheduled sending (from DB)
+    let nameVal = 'Customer';
+    let companyVal = 'Enterprise';
+    
+    if (recipient.data && activeSendingState.mappedFields) {
+      nameVal = recipient.data[activeSendingState.mappedFields.name] || 'Customer';
+      companyVal = recipient.data[activeSendingState.mappedFields.company] || 'Enterprise';
+    } else {
+      nameVal = recipient.name || 'Customer';
+      companyVal = recipient.company || 'Enterprise';
+    }
 
     const isInvalid = recipient.status === 'Invalid';
     const timestamp = new Date().toLocaleTimeString();
@@ -494,10 +595,17 @@ async function processQueueStep() {
       newFailedList.push(recipient);
       
       // Update recipient status in DB
-      await pool.query(
-        'INSERT INTO recipients (campaignId, email, name, company, status, reason, sentAt) VALUES (?, ?, ?, ?, ?, ?, ?);',
-        [activeSendingState.campaignId, emailAddress, nameVal, companyVal, 'Skipped', 'Invalid Email Syntax', new Date().toISOString()]
-      );
+      if (recipient.id) {
+        await pool.query(
+          'UPDATE recipients SET status = ?, reason = ?, sentAt = ? WHERE id = ?;',
+          ['Skipped', 'Invalid Email Syntax', new Date().toISOString(), recipient.id]
+        );
+      } else {
+        await pool.query(
+          'INSERT INTO recipients (campaignId, email, name, company, status, reason, sentAt) VALUES (?, ?, ?, ?, ?, ?, ?);',
+          [activeSendingState.campaignId, emailAddress, nameVal, companyVal, 'Skipped', 'Invalid Email Syntax', new Date().toISOString()]
+        );
+      }
       continue;
     }
 
@@ -566,11 +674,18 @@ async function processQueueStep() {
       newFailedList.push(recipient);
     }
 
-    // Insert recipient status log in MySQL
-    await pool.query(
-      'INSERT INTO recipients (campaignId, email, name, company, status, reason, sentAt) VALUES (?, ?, ?, ?, ?, ?, ?);',
-      [activeSendingState.campaignId, emailAddress, nameVal, companyVal, success ? 'Sent' : 'Failed', success ? '' : errorMsg, new Date().toISOString()]
-    );
+    // Insert/Update recipient status log in MySQL
+    if (recipient.id) {
+      await pool.query(
+        'UPDATE recipients SET status = ?, reason = ?, sentAt = ? WHERE id = ?;',
+        [success ? 'Sent' : 'Failed', success ? '' : errorMsg, new Date().toISOString(), recipient.id]
+      );
+    } else {
+      await pool.query(
+        'INSERT INTO recipients (campaignId, email, name, company, status, reason, sentAt) VALUES (?, ?, ?, ?, ?, ?, ?);',
+        [activeSendingState.campaignId, emailAddress, nameVal, companyVal, success ? 'Sent' : 'Failed', success ? '' : errorMsg, new Date().toISOString()]
+      );
+    }
   }
 
   const newRemaining = Math.max(0, activeSendingState.remaining - batchSize);
@@ -605,20 +720,32 @@ async function completeCampaignDispatch() {
     sendingTimer = null;
   }
 
-  // Update MySQL campaigns status to Completed
+  const completionTime = new Date().toISOString();
+  // Update MySQL campaigns status to Completed with completionTime
   await pool.query(
-    'UPDATE campaigns SET status = "Completed", sentCount = ?, failedCount = ? WHERE id = ?;',
-    [activeSendingState.sent, activeSendingState.failed, activeSendingState.campaignId]
+    'UPDATE campaigns SET status = "Completed", sentCount = ?, failedCount = ?, completionTime = ? WHERE id = ?;',
+    [activeSendingState.sent, activeSendingState.failed, completionTime, activeSendingState.campaignId]
   );
 
+  const smtpSettings = await getSMTPSettings();
   await logEvent(
     'System Mailer',
     `Campaign "${activeSendingState.campaignName}" finished sending. (${activeSendingState.sent} Sent, ${activeSendingState.failed} Failed)`,
-    activeSendingState.failed > 0 ? 'Warning' : 'Success'
+    activeSendingState.failed > 0 ? 'Warning' : 'Success',
+    activeSendingState.campaignId,
+    {
+      campaignName: activeSendingState.campaignName,
+      subject: activeSendingState.subject,
+      body: activeSendingState.body,
+      senderEmail: smtpSettings.senderEmail || 'system@aerosend.com',
+      recipientCount: activeSendingState.total,
+      deliveryStatus: activeSendingState.failed > 0 ? 'Completed with Warnings' : 'Completed',
+      openStatus: 'Not Opened',
+      failureDetails: activeSendingState.failed > 0 ? `${activeSendingState.failed} email(s) bounced or failed.` : null
+    }
   );
 
   // Send admin summary report if not mock SMTP
-  const smtpSettings = await getSMTPSettings();
   const isMock = smtpSettings.host.includes('mock') || smtpSettings.password.includes('mock');
   if (!isMock && smtpSettings.senderEmail) {
     try {
@@ -694,6 +821,70 @@ async function completeCampaignDispatch() {
   }
 }
 
+async function resumeInterruptedCampaigns() {
+  try {
+    const [runningCampaigns] = await pool.query(
+      "SELECT * FROM campaigns WHERE status = 'Sending';"
+    );
+    
+    if (runningCampaigns && runningCampaigns.length > 0) {
+      console.log(`[Startup Recovery] Found ${runningCampaigns.length} interrupted campaign(s) in "Sending" status.`);
+      
+      for (const campaign of runningCampaigns) {
+        const [recipients] = await pool.query(
+          "SELECT * FROM recipients WHERE campaignId = ? ORDER BY id ASC;",
+          [campaign.id]
+        );
+        
+        const sentCount = recipients.filter(r => r.status === 'Sent').length;
+        const failedCount = recipients.filter(r => r.status === 'Failed').length;
+        const skippedCount = recipients.filter(r => r.status === 'Skipped').length;
+        
+        const remainingRecipients = recipients.filter(r => r.status !== 'Sent' && r.status !== 'Failed' && r.status !== 'Skipped');
+        
+        console.log(`[Startup Recovery] Resuming campaign "${campaign.name}" (${campaign.id}): Already Sent: ${sentCount}, Failed: ${failedCount}, Skipped: ${skippedCount}, Remaining: ${remainingRecipients.length}`);
+        
+        if (remainingRecipients.length === 0) {
+          const completionTime = new Date().toISOString();
+          await pool.query(
+            "UPDATE campaigns SET status = 'Completed', completionTime = ? WHERE id = ?;",
+            [completionTime, campaign.id]
+          );
+          continue;
+        }
+        
+        if (activeSendingState.status === 'idle') {
+          const smtpSettings = await getSMTPSettings();
+          activeSendingState = {
+            campaignId: campaign.id,
+            campaignName: campaign.name,
+            subject: campaign.subject || '',
+            body: campaign.body || '',
+            total: recipients.length,
+            sent: sentCount + skippedCount,
+            failed: failedCount,
+            remaining: remainingRecipients.length,
+            status: 'sending',
+            logs: [`[${new Date().toLocaleTimeString()}] Resuming interrupted campaign sending loop after system restart...`],
+            failedList: recipients.filter(r => r.status === 'Failed'),
+            recipientData: recipients,
+            mappedFields: { name: 'name', email: 'email', company: 'company' },
+            concurrency: 1,
+            delayOverride: smtpSettings.delaySeconds || 0.5,
+            showAdminSummary: false
+          };
+          
+          const initDelay = (activeSendingState.delayOverride || smtpSettings.delaySeconds || 0.5) * 1000;
+          sendingTimer = setTimeout(processQueueStep, initDelay);
+          break;
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[Startup Recovery Error]:', err.message);
+  }
+}
+
 // Launch Endpoint
 app.post('/api/sending/launch', async (req, res) => {
   const { campaignId, campaignName, subject, body, recipients, range, concurrency, delay } = req.body;
@@ -731,20 +922,32 @@ app.post('/api/sending/launch', async (req, res) => {
     rangeIndex: range
   };
 
-  // Update DB status to Sending
+  const smtpSettings = await getSMTPSettings();
+  const sendTime = new Date().toISOString();
+
+  // Update DB status to Sending with SMTP metadata and Send Time
   await pool.query(
-    'UPDATE campaigns SET status = "Sending", sentCount = 0, failedCount = 0, recipientsCount = ? WHERE id = ?;',
-    [totalCount, campaignId]
+    'UPDATE campaigns SET status = "Sending", sentCount = 0, failedCount = 0, recipientsCount = ?, smtpUsed = ?, sendTime = ? WHERE id = ?;',
+    [totalCount, smtpSettings.host || 'Local Mock', sendTime, campaignId]
   );
 
   await logEvent(
     'System Queue',
     `Launched Campaign "${campaignName}" targeting ${totalCount} recipients.`,
-    'Success'
+    'Success',
+    campaignId,
+    {
+      campaignName,
+      subject: subject || '',
+      body: body || '',
+      senderEmail: smtpSettings.senderEmail || 'system@aerosend.com',
+      recipientCount: totalCount,
+      deliveryStatus: 'Sending',
+      openStatus: 'Not Opened'
+    }
   );
 
   // Start sending loop
-  const smtpSettings = await getSMTPSettings();
   const initDelay = (activeSendingState.delayOverride || smtpSettings.delaySeconds || 0.5) * 1000;
   sendingTimer = setTimeout(processQueueStep, initDelay);
 
@@ -762,16 +965,45 @@ app.post('/api/sending/pause', async (req, res) => {
   }
   activeSendingState.status = 'paused';
   activeSendingState.logs.unshift(`[${new Date().toLocaleTimeString()}] Transmission paused by user.`);
-  await logEvent('Administrator', `Paused Campaign "${activeSendingState.campaignName}"`, 'Success');
+  
+  const smtpSettings = await getSMTPSettings();
+  await logEvent(
+    'Administrator', 
+    `Paused Campaign "${activeSendingState.campaignName}"`, 
+    'Success',
+    activeSendingState.campaignId,
+    {
+      campaignName: activeSendingState.campaignName,
+      subject: activeSendingState.subject,
+      body: activeSendingState.body,
+      senderEmail: smtpSettings.senderEmail || 'system@aerosend.com',
+      recipientCount: activeSendingState.total,
+      deliveryStatus: 'Paused'
+    }
+  );
   res.json({ success: true });
 });
 
 app.post('/api/sending/resume', async (req, res) => {
   activeSendingState.status = 'sending';
   activeSendingState.logs.unshift(`[${new Date().toLocaleTimeString()}] Transmission resumed.`);
-  await logEvent('Administrator', `Resumed Campaign "${activeSendingState.campaignName}"`, 'Success');
   
   const smtpSettings = await getSMTPSettings();
+  await logEvent(
+    'Administrator', 
+    `Resumed Campaign "${activeSendingState.campaignName}"`, 
+    'Success',
+    activeSendingState.campaignId,
+    {
+      campaignName: activeSendingState.campaignName,
+      subject: activeSendingState.subject,
+      body: activeSendingState.body,
+      senderEmail: smtpSettings.senderEmail || 'system@aerosend.com',
+      recipientCount: activeSendingState.total,
+      deliveryStatus: 'Sending'
+    }
+  );
+  
   const initDelay = (activeSendingState.delayOverride || smtpSettings.delaySeconds || 0.5) * 1000;
   sendingTimer = setTimeout(processQueueStep, initDelay);
   
@@ -788,12 +1020,29 @@ app.post('/api/sending/stop', async (req, res) => {
   activeSendingState.remaining = 0;
   activeSendingState.logs.unshift(`[${new Date().toLocaleTimeString()}] Transmission terminated by user.`);
   
+  const completionTime = new Date().toISOString();
   await pool.query(
-    'UPDATE campaigns SET status = "Completed", sentCount = ?, failedCount = ? WHERE id = ?;',
-    [activeSendingState.sent, activeSendingState.failed, activeSendingState.campaignId]
+    'UPDATE campaigns SET status = "Completed", sentCount = ?, failedCount = ?, completionTime = ? WHERE id = ?;',
+    [activeSendingState.sent, activeSendingState.failed, completionTime, activeSendingState.campaignId]
   );
 
-  await logEvent('Administrator', `Stopped Campaign "${activeSendingState.campaignName}"`, 'Warning');
+  const smtpSettings = await getSMTPSettings();
+  await logEvent(
+    'Administrator', 
+    `Stopped Campaign "${activeSendingState.campaignName}"`, 
+    'Warning',
+    activeSendingState.campaignId,
+    {
+      campaignName: activeSendingState.campaignName,
+      subject: activeSendingState.subject,
+      body: activeSendingState.body,
+      senderEmail: smtpSettings.senderEmail || 'system@aerosend.com',
+      recipientCount: activeSendingState.total,
+      deliveryStatus: 'Stopped',
+      openStatus: 'Not Opened',
+      failureDetails: `Stopped by Administrator after sending ${activeSendingState.sent} email(s).`
+    }
+  );
   res.json({ success: true });
 });
 
@@ -818,7 +1067,7 @@ app.post('/api/sending/retry', async (req, res) => {
   activeSendingState.failedList = [];
   activeSendingState.recipientData = [...activeSendingState.recipientData, ...resetRetryList];
 
-  await logEvent('Administrator', `Retrying ${totalCount} failed emails.`, 'Success');
+  await logEvent('Administrator', `Retrying ${totalCount} failed emails.`, 'Success', activeSendingState.campaignId);
 
   const smtpSettings = await getSMTPSettings();
   const initDelay = (activeSendingState.delayOverride || smtpSettings.delaySeconds || 0.5) * 1000;
@@ -831,6 +1080,186 @@ app.post('/api/sending/dismiss-summary', (req, res) => {
   activeSendingState.showAdminSummary = false;
   res.json({ success: true });
 });
+
+// 12. Fetch recipients logs for a specific campaign
+app.get('/api/campaigns/:id/recipients', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [rows] = await pool.query('SELECT * FROM recipients WHERE campaignId = ? ORDER BY id ASC;', [id]);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 13. Delete a single audit log entry (soft/permanent)
+app.delete('/api/logs/:id', async (req, res) => {
+  const { id } = req.params;
+  const { permanent } = req.query; // 'true' or 'false'
+  try {
+    if (permanent === 'true') {
+      await pool.query('DELETE FROM audit_logs WHERE id = ?;', [id]);
+    } else {
+      const deletedAt = new Date().toISOString();
+      await pool.query('UPDATE audit_logs SET deletedAt = ? WHERE id = ?;', [deletedAt, id]);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 14. Bulk delete audit logs (soft/permanent)
+app.post('/api/logs/delete-bulk', async (req, res) => {
+  const { ids, permanent } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'No IDs provided' });
+  }
+  try {
+    if (permanent) {
+      for (const id of ids) {
+        await pool.query('DELETE FROM audit_logs WHERE id = ?;', [id]);
+      }
+    } else {
+      const deletedAt = new Date().toISOString();
+      for (const id of ids) {
+        await pool.query('UPDATE audit_logs SET deletedAt = ? WHERE id = ?;', [deletedAt, id]);
+      }
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 15. Bulk restore audit logs
+app.post('/api/logs/restore-bulk', async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'No IDs provided' });
+  }
+  try {
+    for (const id of ids) {
+      await pool.query('UPDATE audit_logs SET deletedAt = NULL WHERE id = ?;', [id]);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 16. Clear dispatch history for a campaign (all recipients & logs, resets campaign statistics)
+app.delete('/api/campaigns/:id/history', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query('DELETE FROM recipients WHERE campaignId = ?;', [id]);
+    await pool.query('DELETE FROM audit_logs WHERE campaignId = ?;', [id]);
+    await pool.query('UPDATE campaigns SET sentCount = 0, failedCount = 0, status = "Draft", smtpUsed = NULL, sendTime = NULL, completionTime = NULL WHERE id = ?;', [id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+async function checkAndLaunchScheduledCampaigns() {
+  if (activeSendingState.status === 'sending') {
+    return;
+  }
+
+  try {
+    const nowUtc = new Date().toISOString();
+    const [dueCampaigns] = await pool.query(
+      `SELECT * FROM campaigns 
+       WHERE status = 'Scheduled' 
+       AND scheduleDate <= ? 
+       ORDER BY scheduleDate ASC 
+       LIMIT 1;`,
+      [nowUtc]
+    );
+
+    if (!dueCampaigns || dueCampaigns.length === 0) {
+      return;
+    }
+
+    const campaign = dueCampaigns[0];
+    console.log(`[Scheduler] Found due campaign: "${campaign.name}" (${campaign.id}) scheduled for ${campaign.scheduleDate}`);
+
+    const smtpSettings = await getSMTPSettings();
+    await pool.query(
+      `UPDATE campaigns SET status = 'Sending', sendTime = ? WHERE id = ?;`,
+      [nowUtc, campaign.id]
+    );
+
+    const [recipients] = await pool.query(
+      `SELECT * FROM recipients WHERE campaignId = ? ORDER BY id ASC;`,
+      [campaign.id]
+    );
+
+    console.log(`[Scheduler] Loaded ${recipients.length} recipients for campaign: "${campaign.name}"`);
+
+    if (recipients.length === 0) {
+      const completionTime = new Date().toISOString();
+      await pool.query(
+        `UPDATE campaigns SET status = 'Completed', completionTime = ? WHERE id = ?;`,
+        [completionTime, campaign.id]
+      );
+      
+      await logEvent(
+        'System Scheduler',
+        `Scheduled campaign "${campaign.name}" finished immediately (0 recipients).`,
+        'Success',
+        campaign.id
+      );
+      return;
+    }
+
+    activeSendingState = {
+      campaignId: campaign.id,
+      campaignName: campaign.name,
+      subject: campaign.subject || '',
+      body: campaign.body || '',
+      total: recipients.length,
+      sent: 0,
+      failed: 0,
+      remaining: recipients.length,
+      status: 'sending',
+      logs: [`[${new Date().toLocaleTimeString()}] Scheduled Campaign triggered and starting transmission...`],
+      failedList: [],
+      recipientData: recipients,
+      mappedFields: { name: 'name', email: 'email', company: 'company' },
+      concurrency: 1,
+      delayOverride: smtpSettings.delaySeconds || 0.5,
+      showAdminSummary: false
+    };
+
+    await logEvent(
+      'System Scheduler',
+      `Triggered Scheduled Campaign "${campaign.name}" targeting ${recipients.length} recipients.`,
+      'Success',
+      campaign.id,
+      {
+        campaignName: campaign.name,
+        subject: campaign.subject || '',
+        body: campaign.body || '',
+        senderEmail: smtpSettings.senderEmail || 'system@aerosend.com',
+        recipientCount: recipients.length,
+        deliveryStatus: 'Sending'
+      }
+    );
+
+    const initDelay = (activeSendingState.delayOverride || smtpSettings.delaySeconds || 0.5) * 1000;
+    sendingTimer = setTimeout(processQueueStep, initDelay);
+
+  } catch (err) {
+    console.error('[Scheduler Error]:', err.message);
+  }
+}
+
+// Start the scheduled campaign polling loop (checks every 10 seconds)
+setInterval(checkAndLaunchScheduledCampaigns, 10000);
+
+// Run startup recovery checks for any interrupted campaigns
+resumeInterruptedCampaigns();
 
 app.listen(port, () => {
   console.log(`Server is running at http://localhost:${port}`);

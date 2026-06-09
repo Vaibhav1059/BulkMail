@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local and Dynamic Configuration Databases
+server/db.json
+server/sent_emails/
+.env

@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 
 export const CreateCampaign = () => {
-  const { campaignWorkspace, setCampaignWorkspace, saveCampaign, sendTestEmail, logEvent } = useContext(AppContext);
+  const { campaignWorkspace, setCampaignWorkspace, saveCampaign, sendTestEmail, logEvent, templates } = useContext(AppContext);
   const navigate = useNavigate();
 
   // Local Form state initialized from global workspace
@@ -33,28 +33,6 @@ export const CreateCampaign = () => {
   const [sendingTest, setSendingTest] = useState(false);
   const [testSentStatus, setTestSentStatus] = useState(null); // 'success' | 'error' | null
   const [isTestMock, setIsTestMock] = useState(false);
-
-  // Pre-defined templates for quick insertion
-  const templates = [
-    {
-      id: 'news',
-      name: 'Monthly Newsletter',
-      subject: 'Newsletter: Latest updates from {{company}}',
-      body: 'Hi {{name}},\n\nHere are the top stories this month from {{company}}:\n\n1. Product Automations are now live.\n2. Security parameters have been updated.\n\nEnjoy the reads!\n\nBest,\nThe Newsletter Team'
-    },
-    {
-      id: 'welcome',
-      name: 'Welcome Onboarding',
-      subject: 'Welcome to AeroSend, {{name}}!',
-      body: 'Hello {{name}},\n\nThank you for setting up your account under {{email}}. We are excited to support your journey.\n\nLet us know if you need help.\n\nRegards,\nCustomer Success'
-    },
-    {
-      id: 'promo',
-      name: 'Exclusive Promo Discount',
-      subject: 'Exclusive deal for {{name}}',
-      body: 'Hey {{name}},\n\nWe have generated a custom coupon for {{company}} employees. Use code AEROSEND20 to get 20% off your active subscription.\n\nAct fast!\nSales Team'
-    }
-  ];
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -115,6 +93,17 @@ export const CreateCampaign = () => {
     if (!formData.name.trim() || !formData.subject.trim() || !formData.body.trim()) {
       alert('Please fill out all required fields: Name, Subject, and Email Body.');
       return;
+    }
+
+    if (formData.scheduleOption === 'schedule') {
+      if (!formData.scheduleDate) {
+        alert('Please specify a valid schedule date and time.');
+        return;
+      }
+      if (new Date(formData.scheduleDate) <= new Date()) {
+        alert('Please select a schedule date and time in the future.');
+        return;
+      }
     }
 
     // Save temporary details in App Context
@@ -289,17 +278,19 @@ export const CreateCampaign = () => {
         {showTestModal && (
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-white border border-slate-200 rounded-xl max-w-sm w-full p-6 shadow-xl relative">
-              <button
-                onClick={() => {
-                  setShowTestModal(false);
-                  setTestSentStatus(null);
-                }}
-                className="absolute top-4 right-4 text-slate-400 hover:text-slate-655 transition-colors"
-              >
-                <X size={16} />
-              </button>
-
-              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-2">Send Test Email</h3>
+              <div className="flex justify-between items-center mb-2">
+                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Send Test Email</h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTestModal(false);
+                    setTestSentStatus(null);
+                  }}
+                  className="text-slate-400 hover:text-slate-655 transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
               <p className="text-xs text-slate-550 mb-4">Validate SMTP status and visual rendering with a single mock recipient.</p>
 
               <div className="space-y-4">

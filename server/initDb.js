@@ -18,7 +18,7 @@ async function initDB() {
     // 2. Select Database
     await connection.query('USE aerosend_db;');
 
-    // 3. Create Settings Table
+    // 3. Create Settings Table (Don't drop to preserve SMTP credentials)
     await connection.query(`
       CREATE TABLE IF NOT EXISTS settings (
         id INT PRIMARY KEY DEFAULT 1,
@@ -47,9 +47,15 @@ async function initDB() {
       console.log('Default settings row initialized.');
     }
 
-    // 4. Create Campaigns Table
+    // Drop tables to apply clean new constraints, relationships and foreign keys (except settings and templates)
+    console.log('Dropping existing campaign and logging tables for schema synchronization...');
+    await connection.query('DROP TABLE IF EXISTS recipients;');
+    await connection.query('DROP TABLE IF EXISTS audit_logs;');
+    await connection.query('DROP TABLE IF EXISTS campaigns;');
+
+    // 4. Create Campaigns Table with upgraded audit parameters
     await connection.query(`
-      CREATE TABLE IF NOT EXISTS campaigns (
+      CREATE TABLE campaigns (
         id VARCHAR(50) PRIMARY KEY,
         name VARCHAR(255),
         subject VARCHAR(255),
@@ -60,14 +66,17 @@ async function initDB() {
         status VARCHAR(50) DEFAULT 'Draft',
         date VARCHAR(50),
         scheduleDate VARCHAR(50),
-        creator VARCHAR(255)
+        creator VARCHAR(255),
+        smtpUsed VARCHAR(255) DEFAULT NULL,
+        sendTime VARCHAR(50) DEFAULT NULL,
+        completionTime VARCHAR(50) DEFAULT NULL
       );
     `);
-    console.log('Campaigns table checked.');
+    console.log('Upgraded Campaigns table created.');
 
-    // 5. Create Recipients Table
+    // 5. Create Recipients Table with ON DELETE CASCADE foreign keys
     await connection.query(`
-      CREATE TABLE IF NOT EXISTS recipients (
+      CREATE TABLE recipients (
         id INT AUTO_INCREMENT PRIMARY KEY,
         campaignId VARCHAR(50),
         email VARCHAR(255),
@@ -75,22 +84,35 @@ async function initDB() {
         company VARCHAR(255),
         status VARCHAR(50) DEFAULT 'Valid',
         reason VARCHAR(255) DEFAULT '',
-        sentAt VARCHAR(50) DEFAULT ''
+        sentAt VARCHAR(50) DEFAULT '',
+        INDEX idx_campaignId (campaignId),
+        INDEX idx_email (email)
       );
     `);
-    console.log('Recipients table checked.');
+    console.log('Upgraded Recipients table created.');
 
-    // 6. Create Audit Logs Table
+    // 6. Create Audit Logs Table with campaign tracking columns and cascade rules
     await connection.query(`
-      CREATE TABLE IF NOT EXISTS audit_logs (
+      CREATE TABLE audit_logs (
         id VARCHAR(50) PRIMARY KEY,
         date VARCHAR(50),
         user VARCHAR(255),
         action VARCHAR(255),
-        status VARCHAR(50)
+        status VARCHAR(50),
+        campaignId VARCHAR(50) DEFAULT NULL,
+        campaignName VARCHAR(255) DEFAULT NULL,
+        subject VARCHAR(255) DEFAULT NULL,
+        body TEXT DEFAULT NULL,
+        senderEmail VARCHAR(255) DEFAULT NULL,
+        recipientCount INT DEFAULT 0,
+        deliveryStatus VARCHAR(50) DEFAULT NULL,
+        openStatus VARCHAR(50) DEFAULT 'Not Opened',
+        failureDetails TEXT DEFAULT NULL,
+        deletedAt VARCHAR(50) DEFAULT NULL,
+        INDEX idx_audit_campaignId (campaignId)
       );
     `);
-    console.log('Audit logs table checked.');
+    console.log('Upgraded Audit Logs table created.');
 
     // 7. Create Users Table
     await connection.query(`
@@ -122,7 +144,7 @@ async function initDB() {
       console.log('Seeded default users.');
     }
 
-    // 8. Create Templates Table
+    // 8. Create Templates Table (Don't drop to preserve templates)
     await connection.query(`
       CREATE TABLE IF NOT EXISTS templates (
         id VARCHAR(50) PRIMARY KEY,
@@ -206,73 +228,119 @@ async function initDB() {
       console.log('Seeded default templates.');
     }
 
-    // Seed default campaigns if table is empty
-    const [campRows] = await connection.query('SELECT COUNT(*) as count FROM campaigns;');
-    if (campRows[0].count === 0) {
-      const defaultCampaigns = [
-        {
-          id: 'c1',
-          name: 'Q3 Product Newsletter Launch',
-          subject: 'Introducing our new automation workflow Builder! 🚀',
-          body: 'Hi {{name}},\n\nWe are thrilled to present our brand new automation workflow features. As a valued employee at {{company}}, you get exclusive early access!\n\nBest,\nThe Team',
-          recipientsCount: 1450,
-          sentCount: 1450,
-          failedCount: 0,
-          status: 'Completed',
-          date: new Date(Date.now() - 5*24*60*60*1000).toISOString(),
-          creator: 'Marcus Chen'
-        },
-        {
-          id: 'c2',
-          name: 'Customer Re-engagement Campaign',
-          subject: 'We miss you, {{name}}! Here is 50% off.',
-          body: 'Hey {{name}},\n\nIt has been a while since you logged in. Check out the latest updates at {{company}} and enjoy 50% off your next billing cycle.\n\nCheers,\nGrowth Team',
-          recipientsCount: 840,
-          sentCount: 832,
-          failedCount: 8,
-          status: 'Completed',
-          date: new Date(Date.now() - 2*24*60*60*1000).toISOString(),
-          creator: 'Alexander Wright'
-        },
-        {
-          id: 'c3',
-          name: 'Developer API Conference Invitation',
-          subject: 'Register now for {{company}} API DevCon 2026',
-          body: 'Hello {{name}},\n\nGet ready for our annual developer conference. Tickets are moving fast. Register with your email {{email}} now.\n\nRegards,\nDevRel Team',
-          recipientsCount: 2100,
-          sentCount: 0,
-          failedCount: 0,
-          status: 'Scheduled',
-          date: new Date(Date.now() + 10*24*60*60*1000).toISOString(),
-          scheduleDate: new Date(Date.now() + 10*24*60*60*1000).toISOString(),
-          creator: 'Marcus Chen'
-        }
-      ];
-
-      for (const camp of defaultCampaigns) {
-        await connection.query(`
-          INSERT INTO campaigns (id, name, subject, body, recipientsCount, sentCount, failedCount, status, date, scheduleDate, creator)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-        `, [camp.id, camp.name, camp.subject, camp.body, camp.recipientsCount, camp.sentCount, camp.failedCount, camp.status, camp.date, camp.scheduleDate || null, camp.creator]);
+    // Seed default campaigns with upgraded audit parameters
+    const defaultCampaigns = [
+      {
+        id: 'c1',
+        name: 'Q3 Product Newsletter Launch',
+        subject: 'Introducing our new automation workflow Builder! 🚀',
+        body: 'Hi {{name}},\n\nWe are thrilled to present our brand new automation workflow features. As a valued employee at {{company}}, you get exclusive early access!\n\nBest,\nThe Team',
+        recipientsCount: 1450,
+        sentCount: 1450,
+        failedCount: 0,
+        status: 'Completed',
+        date: new Date(Date.now() - 5*24*60*60*1000).toISOString(),
+        creator: 'Marcus Chen',
+        smtpUsed: 'smtp.sendgrid.net',
+        sendTime: new Date(Date.now() - 5*24*60*60*1000 - 30*60*1000).toISOString(),
+        completionTime: new Date(Date.now() - 5*24*60*60*1000).toISOString()
+      },
+      {
+        id: 'c2',
+        name: 'Customer Re-engagement Campaign',
+        subject: 'We miss you, {{name}}! Here is 50% off.',
+        body: 'Hey {{name}},\n\nIt has been a while since you logged in. Check out the latest updates at {{company}} and enjoy 50% off your next billing cycle.\n\nCheers,\nGrowth Team',
+        recipientsCount: 840,
+        sentCount: 832,
+        failedCount: 8,
+        status: 'Completed',
+        date: new Date(Date.now() - 2*24*60*60*1000).toISOString(),
+        creator: 'Alexander Wright',
+        smtpUsed: 'smtp.sendgrid.net',
+        sendTime: new Date(Date.now() - 2*24*60*60*1000 - 20*60*1000).toISOString(),
+        completionTime: new Date(Date.now() - 2*24*60*60*1000).toISOString()
+      },
+      {
+        id: 'c3',
+        name: 'Developer API Conference Invitation',
+        subject: 'Register now for {{company}} API DevCon 2026',
+        body: 'Hello {{name}},\n\nGet ready for our annual developer conference. Tickets are moving fast. Register with your email {{email}} now.\n\nRegards,\nDevRel Team',
+        recipientsCount: 2100,
+        sentCount: 0,
+        failedCount: 0,
+        status: 'Scheduled',
+        date: new Date(Date.now() + 10*24*60*60*1000).toISOString(),
+        scheduleDate: new Date(Date.now() + 10*24*60*60*1000).toISOString(),
+        creator: 'Marcus Chen',
+        smtpUsed: null,
+        sendTime: null,
+        completionTime: null
       }
-      console.log('Seeded default campaigns.');
-    }
+    ];
 
-    // Seed default audit logs if empty
-    const [logRows] = await connection.query('SELECT COUNT(*) as count FROM audit_logs;');
-    if (logRows[0].count === 0) {
-      const defaultLogs = [
-        { id: 'l1', date: new Date().toISOString(), user: 'Alexander Wright', action: 'Database schema successfully initialized', status: 'Success' },
-        { id: 'l2', date: new Date(Date.now() - 3600000).toISOString(), user: 'Marcus Chen', action: 'Created Campaign "Developer API Conference Invitation"', status: 'Success' }
-      ];
-      for (const log of defaultLogs) {
-        await connection.query(`
-          INSERT INTO audit_logs (id, date, user, action, status)
-          VALUES (?, ?, ?, ?, ?);
-        `, [log.id, log.date, log.user, log.action, log.status]);
-      }
-      console.log('Seeded default audit logs.');
+    for (const camp of defaultCampaigns) {
+      await connection.query(`
+        INSERT INTO campaigns (id, name, subject, body, recipientsCount, sentCount, failedCount, status, date, scheduleDate, creator, smtpUsed, sendTime, completionTime)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+      `, [camp.id, camp.name, camp.subject, camp.body, camp.recipientsCount, camp.sentCount, camp.failedCount, camp.status, camp.date, camp.scheduleDate || null, camp.creator, camp.smtpUsed, camp.sendTime, camp.completionTime]);
     }
+    console.log('Seeded default campaigns.');
+
+    // Seed default recipients matching campaigns
+    const defaultRecipients = [
+      { campaignId: 'c2', email: 'jane.smith@stripe.com', name: 'Jane Smith', company: 'Stripe Inc', status: 'Sent', reason: '', sentAt: new Date(Date.now() - 2*24*60*60*1000 - 15*60*1000).toISOString() },
+      { campaignId: 'c2', email: 'bob.johnson@netflix.com', name: 'Bob Johnson', company: 'Netflix', status: 'Failed', reason: 'SMTP delivery timeout/bounce', sentAt: new Date(Date.now() - 2*24*60*60*1000 - 10*60*1000).toISOString() }
+    ];
+
+    for (const r of defaultRecipients) {
+      await connection.query(`
+        INSERT INTO recipients (campaignId, email, name, company, status, reason, sentAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?);
+      `, [r.campaignId, r.email, r.name, r.company, r.status, r.reason, r.sentAt]);
+    }
+    console.log('Seeded default campaign recipients.');
+
+    // Seed default audit logs associated with campaigns
+    const defaultLogs = [
+      {
+        id: 'l1',
+        date: new Date().toISOString(),
+        user: 'Alexander Wright',
+        action: 'Database schema successfully synchronized with upgraded constraints',
+        status: 'Success',
+        campaignId: null,
+        campaignName: null,
+        subject: null,
+        senderEmail: null,
+        recipientCount: 0,
+        deliveryStatus: null,
+        openStatus: 'Not Opened',
+        failureDetails: null
+      },
+      {
+        id: 'l2',
+        date: new Date(Date.now() - 2*24*60*60*1000).toISOString(),
+        user: 'Alexander Wright',
+        action: 'Campaign "Customer Re-engagement Campaign" finished sending. (832 Sent, 8 Failed)',
+        status: 'Warning',
+        campaignId: 'c2',
+        campaignName: 'Customer Re-engagement Campaign',
+        subject: 'We miss you, {{name}}! Here is 50% off.',
+        senderEmail: 'campaigns@enterprise.com',
+        recipientCount: 840,
+        deliveryStatus: 'Completed with Warnings',
+        openStatus: 'Not Opened',
+        failureDetails: '8 email(s) bounced or failed.'
+      }
+    ];
+
+    for (const log of defaultLogs) {
+      await connection.query(`
+        INSERT INTO audit_logs (id, date, user, action, status, campaignId, campaignName, subject, senderEmail, recipientCount, deliveryStatus, openStatus, failureDetails, deletedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL);
+      `, [log.id, log.date, log.user, log.action, log.status, log.campaignId, log.campaignName, log.subject, log.senderEmail, log.recipientCount, log.deliveryStatus, log.openStatus, log.failureDetails]);
+    }
+    console.log('Seeded default audit logs.');
 
     console.log('Database initialization completed successfully.');
   } catch (err) {

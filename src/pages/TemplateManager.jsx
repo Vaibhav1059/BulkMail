@@ -33,7 +33,7 @@ export const TemplateManager = () => {
   const [body, setBody] = useState('');
   
   // Selection / Mode states
-  const [editingId, setEditingId] = useState(null); // template ID or null for Create mode
+  const [editingId, setEditingId] = useState(null); 
   const [emailTheme, setEmailTheme] = useState('slate-minimal'); // Preview theme
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -94,7 +94,8 @@ export const TemplateManager = () => {
   // Helper to compile template tags for visual personalization preview
   const getCompiledHTML = (bodyText, recipient = sandboxRecipients[0]) => {
     let raw = bodyText || 'Draft your HTML/Plaintext message here...';
-    
+    const isHtml = /<\/?[a-z][\s\S]*>/i.test(raw);//preview ke liye ye check kar raha hai ki body mein HTML tags hain ya nahi
+
     // Replace Markdown double newlines with standard paragraphs
     raw = raw.replace(/\n\n/g, '</p><p style="margin-top: 12px; margin-bottom: 12px;">');
     raw = raw.replace(/\n/g, '<br/>');
@@ -108,6 +109,10 @@ export const TemplateManager = () => {
       .replace(/{{email}}/g, highlight(recipient.email))
       .replace(/{{company}}/g, highlight(recipient.company));
 
+      if (isHtml) {
+        return compiledBody;
+      }
+      
     return `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 32px 24px; min-height: 300px; transition: all 0.3s; ${currentTheme.bg}">
         <div style="max-width: 600px; margin: 0 auto; padding: 32px; font-size: 15px; line-height: 1.6; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05), 0 8px 10px -6px rgba(0,0,0,0.03); ${currentTheme.card}">
@@ -121,8 +126,8 @@ export const TemplateManager = () => {
           </div>
 
           <div style="${currentTheme.text}">
-            <p style="margin: 0 0 12px 0;">${compiledBody}</p>
-          </div>
+            ${compiledBody}
+          </div>  
 
           <div style="margin-top: 40px; padding-top: 20px; font-size: 11px; text-align: center; line-height: 1.7; ${currentTheme.footer}">
             You are receiving this email because you are registered under ${recipient.name} (${recipient.email}).<br/>
@@ -514,7 +519,7 @@ export const TemplateManager = () => {
                       <div>
                         <div className="flex items-center gap-1.5">
                           <span className="font-semibold text-slate-800">AeroSend System</span>
-                          <span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-mono">noreply@aerosend.com</span>
+                          <span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-mono">vaibhavsoni1059@gmail.com</span>
                         </div>
                         <div className="text-[10px] text-slate-400">
                           To: <span className="text-slate-655 font-medium">{currentRecipient.name} &lt;{currentRecipient.email}&gt;</span>
@@ -562,20 +567,9 @@ export const TemplateManager = () => {
         {previewTemplate && (
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-white border border-slate-200 rounded-xl max-w-4xl w-full p-6 shadow-xl relative flex flex-col max-h-[90vh] animate-fadeIn">
-              <button
-                type="button"
-                onClick={() => {
-                  setPreviewTemplate(null);
-                  setModalTab('visual');
-                }}
-                className="absolute top-4 right-4 text-slate-450 hover:text-slate-700 transition-colors bg-slate-100 hover:bg-slate-200/60 p-1.5 rounded-full"
-              >
-                <X size={16} />
-              </button>
-
               <div className="flex flex-col sm:flex-row border-b border-slate-150 pb-3.5 mb-4 justify-between sm:items-center gap-3">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-805 uppercase tracking-wider flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-slate-855 uppercase tracking-wider flex items-center gap-2">
                     <FileCode size={16} className="text-indigo-655" />
                     Template Preview: {previewTemplate.name}
                   </h3>
@@ -584,29 +578,42 @@ export const TemplateManager = () => {
                   </p>
                 </div>
                 
-                {/* Tabs */}
-                <div className="flex gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 self-start sm:self-auto">
+                <div className="flex items-center gap-3 self-end sm:self-auto">
+                  {/* Tabs */}
+                  <div className="flex gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setModalTab('visual')}
+                      className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${
+                        modalTab === 'visual'
+                          ? 'bg-white text-indigo-700 shadow-sm shadow-indigo-100'
+                          : 'text-slate-500 hover:text-slate-705'
+                      }`}
+                    >
+                      Visual Preview
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setModalTab('code')}
+                      className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${
+                        modalTab === 'code'
+                          ? 'bg-white text-indigo-705 shadow-sm shadow-indigo-100'
+                          : 'text-slate-500 hover:text-slate-705'
+                      }`}
+                    >
+                      HTML Source Code
+                    </button>
+                  </div>
+
                   <button
                     type="button"
-                    onClick={() => setModalTab('visual')}
-                    className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${
-                      modalTab === 'visual'
-                        ? 'bg-white text-indigo-700 shadow-sm shadow-indigo-100'
-                        : 'text-slate-500 hover:text-slate-705'
-                    }`}
+                    onClick={() => {
+                      setPreviewTemplate(null);
+                      setModalTab('visual');
+                    }}
+                    className="text-slate-450 hover:text-slate-700 transition-colors bg-slate-100 hover:bg-slate-200/60 p-1.5 rounded-full"
                   >
-                    Visual Preview
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setModalTab('code')}
-                    className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${
-                      modalTab === 'code'
-                        ? 'bg-white text-indigo-705 shadow-sm shadow-indigo-100'
-                        : 'text-slate-500 hover:text-slate-705'
-                    }`}
-                  >
-                    HTML Source Code
+                    <X size={16} />
                   </button>
                 </div>
               </div>
