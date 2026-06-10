@@ -1,8 +1,8 @@
 import React, { useState, useContext } from 'react';
+import { createPortal } from 'react-dom';
 import { AppContext } from '../context/AppContext';
 import {
   FileCode,
-  Sparkles,
   Eye,
   CheckCircle,
   Save,
@@ -12,8 +12,6 @@ import {
   Undo,
   Calendar,
   Layers,
-  ArrowRight,
-  Info,
   X
 } from 'lucide-react';
 
@@ -462,7 +460,7 @@ export const TemplateManager = () => {
               {/* macOS Window simulator */}
               <div className="bg-slate-100/50 border border-slate-200 rounded-xl overflow-hidden shadow-inner flex flex-col transition-all duration-300">
                 {/* macOS Topbar controls */}
-                <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex flex-col md:flex-row gap-3 items-center justify-between">
+                <div className="bg-slate-100 px-3 py-2.5 border-b border-slate-200 flex flex-wrap gap-2 items-center justify-between">
                   <div className="flex items-center gap-1.5">
                     <span className="w-3 h-3 rounded-full bg-[#ff5f56] border border-[#e0443e]" />
                     <span className="w-3 h-3 rounded-full bg-[#ffbd2e] border border-[#dfa123]" />
@@ -543,14 +541,14 @@ export const TemplateManager = () => {
                 </div>
 
                 {/* Content previewer frame */}
-                <div className="flex-1 overflow-hidden bg-slate-100/30 p-4 flex justify-center items-start">
+                <div className="flex-1 overflow-auto bg-slate-100/30 p-3 sm:p-4 flex justify-center items-start">
                   <div
                     className={`bg-white rounded-xl overflow-y-auto custom-scrollbar shadow-sm border border-slate-200/50 transition-all duration-300 ${
                       deviceView === 'mobile'
-                        ? 'w-[375px] h-[450px]'
+                        ? 'w-full max-w-[375px] h-[420px]'
                         : deviceView === 'tablet'
-                        ? 'w-[600px] h-[500px]'
-                        : 'w-full min-h-[320px] max-h-[550px]'
+                        ? 'w-full max-w-[600px] h-[470px]'
+                        : 'w-full min-h-[300px] max-h-[520px]'
                     }`}
                   >
                     <div dangerouslySetInnerHTML={{ __html: getCompiledHTML(body, currentRecipient) }} />
@@ -561,179 +559,120 @@ export const TemplateManager = () => {
           </div>
         </div>
 
-        {/* PREVIEW MODAL */}
-        {previewTemplate && (
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white border border-slate-200 rounded-xl max-w-4xl w-full p-6 shadow-xl relative flex flex-col max-h-[90vh] animate-fadeIn">
-              <div className="flex flex-col sm:flex-row border-b border-slate-150 pb-3.5 mb-4 justify-between sm:items-center gap-3">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-855 uppercase tracking-wider flex items-center gap-2">
-                    <FileCode size={16} className="text-indigo-655" />
-                    Template Preview: {previewTemplate.name}
-                  </h3>
-                  <p className="text-[10px] text-slate-455 font-medium mt-0.5 font-sans">
-                    Subject template: <span className="text-indigo-650 font-mono font-semibold">{previewTemplate.subject}</span>
+        {/* PREVIEW MODAL — Portal renders at document.body, always viewport-fixed regardless of page scroll */}
+        {previewTemplate && createPortal(
+          <div
+            style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px' }}
+            onClick={(e) => { if (e.target === e.currentTarget) { setPreviewTemplate(null); setModalTab('visual'); } }}
+          >
+            <div style={{ background: '#fff', borderRadius: '16px', width: '100%', maxWidth: '900px', maxHeight: 'calc(100vh - 24px)', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 60px -12px rgba(0,0,0,0.3)', border: '1px solid #e2e8f0' }}>
+
+              {/* Header */}
+              <div style={{ flexShrink: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '14px 20px', borderBottom: '1px solid #f1f5f9' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '13px', color: '#1e293b' }}>
+                    <FileCode size={15} style={{ color: '#6366f1', flexShrink: 0 }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{previewTemplate.name}</span>
+                  </div>
+                  <p style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    Subject: <span style={{ color: '#6366f1', fontFamily: 'monospace' }}>{previewTemplate.subject}</span>
                   </p>
                 </div>
-                
-                <div className="flex items-center gap-3 self-end sm:self-auto">
-                  {/* Tabs */}
-                  <div className="flex gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
-                    <button
-                      type="button"
-                      onClick={() => setModalTab('visual')}
-                      className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${
-                        modalTab === 'visual'
-                          ? 'bg-white text-indigo-700 shadow-sm shadow-indigo-100'
-                          : 'text-slate-500 hover:text-slate-705'
-                      }`}
-                    >
-                      Visual Preview
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setModalTab('code')}
-                      className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${
-                        modalTab === 'code'
-                          ? 'bg-white text-indigo-705 shadow-sm shadow-indigo-100'
-                          : 'text-slate-500 hover:text-slate-705'
-                      }`}
-                    >
-                      HTML Source Code
-                    </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                  <div style={{ display: 'flex', gap: '2px', background: '#f1f5f9', padding: '3px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    {[['visual', '👁 Visual'], ['code', '<> Source']].map(([tab, label]) => (
+                      <button key={tab} type="button" onClick={() => setModalTab(tab)}
+                        style={{ padding: '5px 12px', fontSize: '11px', fontWeight: 600, borderRadius: '6px', border: 'none', cursor: 'pointer', transition: 'all .2s',
+                          background: modalTab === tab ? '#fff' : 'transparent',
+                          color: modalTab === tab ? '#4f46e5' : '#64748b',
+                          boxShadow: modalTab === tab ? '0 1px 3px rgba(0,0,0,0.1)' : 'none' }}>
+                        {label}
+                      </button>
+                    ))}
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPreviewTemplate(null);
-                      setModalTab('visual');
-                    }}
-                    className="text-slate-450 hover:text-slate-700 transition-colors bg-slate-100 hover:bg-slate-200/60 p-1.5 rounded-full"
-                  >
-                    <X size={16} />
+                  <button type="button" onClick={() => { setPreviewTemplate(null); setModalTab('visual'); }}
+                    style={{ background: '#f1f5f9', border: 'none', borderRadius: '50%', padding: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
+                    <X size={15} />
                   </button>
                 </div>
               </div>
 
-              {/* Scrollable Preview Wrapper */}
-              <div className="flex-1 min-h-[400px] overflow-hidden flex flex-col">
+              {/* Body */}
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
                 {modalTab === 'visual' ? (
-                  /* macOS style window mockup in modal */
-                  <div className="border border-slate-200 rounded-xl overflow-hidden bg-slate-50 flex flex-col flex-1 shadow-inner">
-                    <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex flex-col md:flex-row gap-3 items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-3 h-3 rounded-full bg-[#ff5f56] border border-[#e0443e]" />
-                        <span className="w-3 h-3 rounded-full bg-[#ffbd2e] border border-[#dfa123]" />
-                        <span className="w-3 h-3 rounded-full bg-[#27c93f] border border-[#1aab29]" />
-                      </div>
-
-                      {/* Device selectors */}
-                      <div className="flex items-center gap-1 bg-slate-200/60 p-0.5 rounded-lg border border-slate-300/30">
-                        {[
-                          { id: 'desktop', label: 'Desktop', icon: '🖥️' },
-                          { id: 'tablet', label: 'Tablet', icon: '📟' },
-                          { id: 'mobile', label: 'Mobile', icon: '📱' }
-                        ].map(device => (
-                          <button
-                            key={device.id}
-                            type="button"
-                            onClick={() => setDeviceView(device.id)}
-                            className={`px-2.5 py-1 text-[10px] font-bold rounded flex items-center gap-1 transition-all duration-300 ${
-                              deviceView === device.id
-                                ? 'bg-white text-slate-800 shadow-sm border border-slate-200'
-                                : 'text-slate-500 hover:text-slate-700'
-                            }`}
-                          >
-                            <span>{device.icon}</span>
-                            <span>{device.label}</span>
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Sandbox recipient */}
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[9px] uppercase font-bold text-slate-400">Sandbox Recipient:</span>
-                        <select
-                          value={sandboxRecipient}
-                          onChange={(e) => setSandboxRecipient(e.target.value)}
-                          className="bg-white border border-slate-200 text-[10px] font-semibold text-indigo-705 rounded-md py-0.5 px-2 focus:ring-0 focus:outline-none w-auto shadow-sm"
-                        >
-                          {sandboxRecipients.map(r => (
-                            <option key={r.id} value={r.id}>{r.name} ({r.company})</option>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                    {/* Controls bar */}
+                    <div style={{ flexShrink: 0, background: '#f8fafc', borderBottom: '1px solid #f1f5f9', padding: '8px 16px', display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{ display: 'flex', gap: '5px' }}>
+                          <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ff5f56', border: '1px solid #e0443e', display: 'inline-block' }} />
+                          <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ffbd2e', border: '1px solid #dfa123', display: 'inline-block' }} />
+                          <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#27c93f', border: '1px solid #1aab29', display: 'inline-block' }} />
+                        </div>
+                        <div style={{ display: 'flex', gap: '2px', background: 'rgba(148,163,184,0.2)', padding: '2px', borderRadius: '8px', border: '1px solid rgba(203,213,225,0.3)' }}>
+                          {[{id:'desktop',label:'Desktop',icon:'🖥️'},{id:'tablet',label:'Tablet',icon:'📟'},{id:'mobile',label:'Mobile',icon:'📱'}].map(d => (
+                            <button key={d.id} type="button" onClick={() => setDeviceView(d.id)}
+                              style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', fontSize: '10px', fontWeight: 700, border: deviceView===d.id ? '1px solid #e2e8f0' : 'none', borderRadius: '6px', cursor: 'pointer', transition: 'all .2s',
+                                background: deviceView===d.id ? '#fff' : 'transparent',
+                                color: deviceView===d.id ? '#1e293b' : '#64748b',
+                                boxShadow: deviceView===d.id ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}>
+                              <span>{d.icon}</span><span>{d.label}</span>
+                            </button>
                           ))}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '9px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Sandbox:</span>
+                        <select value={sandboxRecipient} onChange={(e) => setSandboxRecipient(e.target.value)}
+                          style={{ background: '#fff', border: '1px solid #e2e8f0', fontSize: '10px', fontWeight: 600, color: '#4f46e5', borderRadius: '6px', padding: '3px 8px', outline: 'none' }}>
+                          {sandboxRecipients.map(r => <option key={r.id} value={r.id}>{r.name} ({r.company})</option>)}
                         </select>
                       </div>
                     </div>
 
-                    <div className="bg-white px-5 py-3 border-b border-slate-200/65 text-xs text-slate-605 space-y-1.5 leading-relaxed font-sans shadow-sm">
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <span className="font-semibold text-slate-400 mr-2">To Recipient:</span>
-                          <span className="text-slate-700 font-mono font-medium">{currentRecipient.name} &lt;{currentRecipient.email}&gt;</span>
-                        </div>
-                        <span className="text-[10px] text-slate-400 font-mono">Today</span>
+                    {/* Email header */}
+                    <div style={{ flexShrink: 0, background: '#fff', borderBottom: '1px solid #f1f5f9', padding: '10px 20px', fontSize: '12px', color: '#475569' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                        <span><span style={{ color: '#94a3b8', marginRight: '6px' }}>To:</span><span style={{ fontWeight: 500, color: '#334155' }}>{currentRecipient.name} &lt;{currentRecipient.email}&gt;</span></span>
+                        <span style={{ fontSize: '10px', color: '#94a3b8', fontFamily: 'monospace' }}>Today</span>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-semibold text-slate-400 mr-2">Subject line:</span>
-                        <span className="text-slate-800 font-bold bg-slate-50 border border-slate-150 px-2 py-0.5 rounded text-[11px]">
-                          {previewTemplate.subject
-                            .replace(/{{name}}/g, currentRecipient.name)
-                            .replace(/{{email}}/g, currentRecipient.email)
-                            .replace(/{{company}}/g, currentRecipient.company)}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ color: '#94a3b8' }}>Subject:</span>
+                        <span style={{ fontWeight: 700, color: '#1e293b', background: '#f8fafc', border: '1px solid #e2e8f0', padding: '2px 8px', borderRadius: '5px', fontSize: '11px' }}>
+                          {previewTemplate.subject.replace(/{{name}}/g, currentRecipient.name).replace(/{{email}}/g, currentRecipient.email).replace(/{{company}}/g, currentRecipient.company)}
                         </span>
                       </div>
                     </div>
 
-                    <div className="flex-1 overflow-hidden bg-slate-100/30 p-4 flex justify-center items-start">
-                      <div
-                        className={`bg-white rounded-xl overflow-y-auto custom-scrollbar shadow-sm border border-slate-200/50 transition-all duration-300 ${
-                          deviceView === 'mobile'
-                            ? 'w-[375px] h-[360px]'
-                            : deviceView === 'tablet'
-                            ? 'w-[600px] h-[400px]'
-                            : 'w-full h-[450px]'
-                        }`}
-                      >
+                    {/* Scrollable preview frame */}
+                    <div style={{ flex: 1, overflow: 'auto', background: 'rgba(241,245,249,0.5)', padding: '16px', display: 'flex', justifyContent: 'center', alignItems: 'flex-start' }}>
+                      <div style={{ background: '#fff', borderRadius: '10px', border: '1px solid rgba(226,232,240,0.6)', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', overflow: 'auto', transition: 'all .3s',
+                        width: deviceView === 'mobile' ? 'min(390px, 100%)' : deviceView === 'tablet' ? 'min(640px, 100%)' : '100%',
+                        minHeight: '280px' }}>
                         <div dangerouslySetInnerHTML={{ __html: getCompiledHTML(previewTemplate.body, currentRecipient) }} />
                       </div>
                     </div>
                   </div>
                 ) : (
-                  /* HTML code tab */
-                  <div className="flex-1 bg-slate-950 text-slate-200 p-5 rounded-xl font-mono text-[11px] overflow-auto custom-scrollbar select-all relative min-h-[400px] border border-slate-800">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(getCompiledHTML(previewTemplate.body, currentRecipient));
-                        setCopiedSource(true);
-                        setTimeout(() => setCopiedSource(false), 2000);
-                      }}
-                      className="absolute top-3.5 right-3.5 bg-white/10 hover:bg-white/20 text-white border border-white/10 px-3 py-1.5 rounded text-[10px] font-bold tracking-wide transition-all uppercase flex items-center gap-1.5 z-10"
-                    >
-                      {copiedSource ? 'Copied!' : 'Copy Code'}
+                  <div style={{ flex: 1, background: '#0f172a', color: '#e2e8f0', padding: '20px', fontFamily: 'monospace', fontSize: '11px', overflow: 'auto', position: 'relative', minHeight: 0 }}>
+                    <button type="button"
+                      onClick={() => { navigator.clipboard.writeText(getCompiledHTML(previewTemplate.body, currentRecipient)); setCopiedSource(true); setTimeout(() => setCopiedSource(false), 2000); }}
+                      style={{ position: 'sticky', top: 0, float: 'right', marginLeft: '12px', marginBottom: '8px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff', padding: '5px 12px', borderRadius: '6px', fontSize: '10px', fontWeight: 700, cursor: 'pointer', zIndex: 10 }}>
+                      {copiedSource ? '✓ Copied!' : 'Copy Code'}
                     </button>
-                    <pre className="whitespace-pre-wrap leading-relaxed select-text pr-20">
-                      {getCompiledHTML(previewTemplate.body, currentRecipient)}
-                    </pre>
+                    <pre style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, margin: 0 }}>{getCompiledHTML(previewTemplate.body, currentRecipient)}</pre>
                   </div>
                 )}
               </div>
 
-              <div className="mt-4 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPreviewTemplate(null);
-                    setModalTab('visual');
-                  }}
-                  className="btn-secondary py-2 px-4 text-xs font-semibold"
-                >
-                  Close Preview
-                </button>
+              {/* Footer */}
+              <div style={{ flexShrink: 0, borderTop: '1px solid #f1f5f9', padding: '12px 20px', display: 'flex', justifyContent: 'flex-end' }}>
+                <button type="button" onClick={() => { setPreviewTemplate(null); setModalTab('visual'); }}
+                  className="btn-secondary" style={{ padding: '7px 20px', fontSize: '12px', fontWeight: 600 }}>Close Preview</button>
               </div>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
       </div>
   );

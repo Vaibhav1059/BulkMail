@@ -758,7 +758,7 @@ export const AuditLogs = () => {
                   </div>
                 </div>
 
-                {/* Campaign ID */}
+                {/* Campaign ID */}ru
                 <div className="audit-meta-card">
                   <label className="audit-meta-label">Campaign ID</label>
                   <div className="audit-meta-value mono">

@@ -1,5 +1,6 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { createPortal } from 'react-dom';
 import { AppContext } from '../context/AppContext';
 import {
   LayoutDashboard,
@@ -27,14 +28,23 @@ export const Layout = ({ children }) => {
   const { users, settings } = useContext(AppContext);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [readIds, setReadIds] = useState(() => {
+    try {
+      const saved = localStorage.getItem('notif_read_ids');
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch { return new Set(); }
+  });
+  const bellRef = useRef(null);
+  const [bellPos, setBellPos] = useState({ top: 0, right: 0 });
+
   const location = useLocation();
   const navigate = useNavigate();
 
   // Standard static profile details for the user
   const currentProfile = {
-    name: 'Alexander Wright',
-    email: 'alex@enterprise.com',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80'
+    name: 'Vaibhav Soni',
+    email: 'vaibhav@example.com',
+    avatar: '/vaibhav_avatar.png'
   };
 
   const navItems = [
@@ -56,42 +66,67 @@ export const Layout = ({ children }) => {
   };
 
   const mockNotifications = [
-    { id: 1, text: 'Campaign "Q3 Newsletter" completed successfully.', time: '2 hrs ago', type: 'success' },
-    { id: 2, text: 'SMTP server configuration validation passed.', time: '4 hrs ago', type: 'info' },
-    { id: 3, text: 'Operator uploaded a new CSV file (320 entries).', time: '1 day ago', type: 'info' }
+    { id: 1, text: 'Campaign "Q3 Newsletter" completed successfully.', time: '2 hrs ago', type: 'success', path: '/sending-monitor' },
+    { id: 2, text: 'SMTP server configuration validation passed.', time: '4 hrs ago', type: 'info', path: '/settings' },
+    { id: 3, text: 'Operator uploaded a new CSV file (320 entries).', time: '1 day ago', type: 'info', path: '/csv-upload' }
   ];
+
+  // Only show unread notifications in the panel
+  const visibleNotifications = mockNotifications.filter(n => !readIds.has(n.id));
+
+  const unreadCount = visibleNotifications.length;
+
+  const markAllRead = () => {
+    const allIds = new Set(mockNotifications.map(n => n.id));
+    setReadIds(allIds);
+    localStorage.setItem('notif_read_ids', JSON.stringify([...allIds]));
+    setShowNotifications(false);
+  };
+
+  const handleNotifClick = (n) => {
+    // Mark as read
+    setReadIds(prev => {
+      const next = new Set([...prev, n.id]);
+      localStorage.setItem('notif_read_ids', JSON.stringify([...next]));
+      return next;
+    });
+    // Navigate to relevant page
+    setShowNotifications(false);
+    navigate(n.path);
+  };
 
   return (
     <div className="flex h-screen bg-slate-100 text-slate-900 overflow-hidden font-sans">
       {/* Sidebar Navigation */}
       <motion.aside
         animate={{ width: isCollapsed ? 72 : 260 }}
-        className="hidden md:flex flex-col h-full bg-slate-50 border-r border-slate-200/80 backdrop-blur-xl relative z-20"
+        transition={{ duration: 0.3, ease: 'easeInOut' }}
+        className="hidden md:flex flex-col h-full bg-slate-50 border-r border-slate-200/80 backdrop-blur-xl flex-shrink-0 relative z-30 overflow-visible"
       >
         {/* Logo Section */}
-        <div className="flex items-center justify-between p-4 h-16 border-b border-slate-200/80">
+        <div className="flex items-center justify-between px-3 h-16 border-b border-slate-200/80">
           {!isCollapsed && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 min-w-0"
             >
-              <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-lg text-white shadow-glow-indigo">
+              <div className="w-8 h-8 flex-shrink-0 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-lg text-white shadow-glow-indigo">
                 A
               </div>
-              <span className="font-bold text-lg tracking-tight text-slate-800">
+              <span className="font-bold text-lg tracking-tight text-slate-800 truncate">
                 AeroSend
               </span>
             </motion.div>
           )}
           {isCollapsed && (
-            <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-lg text-white mx-auto shadow-glow-indigo">
+            <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-lg text-white mx-auto shadow-glow-indigo flex-shrink-0">
               A
             </div>
           )}
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-200/50 rounded-lg transition-colors absolute -right-3 top-4 border border-slate-200 bg-white"
+            className="flex-shrink-0 ml-auto text-slate-400 hover:text-indigo-600 p-1.5 hover:bg-indigo-50 rounded-lg transition-all border border-slate-200 bg-white shadow-sm"
           >
             {isCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
           </button>
@@ -107,11 +142,10 @@ export const Layout = ({ children }) => {
               <div key={item.path} className="relative group">
                 <Link
                   to={item.path}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-300 text-sm ${
-                    isActive
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-300 text-sm ${isActive
                       ? 'bg-indigo-50 border-l-2 border-indigo-600 text-indigo-700 font-semibold'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/30 border-l-2 border-transparent'
-                  }`}
+                    }`}
                 >
                   <Icon size={18} className={`flex-shrink-0 ${isActive ? 'text-indigo-600' : 'text-slate-500'}`} />
                   {!isCollapsed && <span>{item.name}</span>}
@@ -148,7 +182,7 @@ export const Layout = ({ children }) => {
       </motion.aside>
 
       {/* Main Container */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-100">
+      <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-100 min-w-0">
         {/* Header */}
         <header className="h-16 border-b border-slate-200 bg-white/80 backdrop-blur-xl flex items-center justify-between px-6 z-10">
           <div className="flex items-center gap-4">
@@ -164,39 +198,109 @@ export const Layout = ({ children }) => {
             {/* Notifications Menu */}
             <div className="relative">
               <button
-                onClick={() => setShowNotifications(!showNotifications)}
+                ref={bellRef}
+                onClick={() => {
+                  if (!showNotifications && bellRef.current) {
+                    const rect = bellRef.current.getBoundingClientRect();
+                    setBellPos({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
+                  }
+                  setShowNotifications(prev => !prev);
+                }}
                 className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg relative"
               >
                 <Bell size={18} />
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-indigo-650 shadow-glow-indigo" />
+                {unreadCount > 0 && (
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-indigo-500 shadow-sm animate-pulse" />
+                )}
               </button>
 
-              <AnimatePresence>
-                {showNotifications && (
-                  <>
-                    <div className="fixed inset-0 z-30" onClick={() => setShowNotifications(false)} />
-                    <motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 10 }}
-                      className="absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden z-45"
-                    >
-                      <div className="p-3 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
-                        <span className="text-xs font-semibold text-slate-700">Notifications</span>
-                        <span className="text-[10px] text-indigo-600 cursor-pointer hover:underline">Mark read</span>
-                      </div>
-                      <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto">
-                        {mockNotifications.map(n => (
-                          <div key={n.id} className="p-3 hover:bg-slate-50 transition-colors">
-                            <p className="text-xs text-slate-650">{n.text}</p>
-                            <span className="text-[9px] text-slate-400 mt-1 block">{n.time}</span>
+              {showNotifications && createPortal(
+                <>
+                  {/* Backdrop */}
+                  <div
+                    style={{ position: 'fixed', inset: 0, zIndex: 9998 }}
+                    onClick={() => setShowNotifications(false)}
+                  />
+                  {/* Dropdown */}
+                  <div
+                    style={{
+                      position: 'fixed',
+                      top: bellPos.top,
+                      right: bellPos.right,
+                      zIndex: 9999,
+                      width: '320px',
+                    }}
+                  >
+                    <AnimatePresence>
+                      <motion.div
+                        key="notif-panel"
+                        initial={{ opacity: 0, y: 8, scale: 0.97 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 8, scale: 0.97 }}
+                        transition={{ duration: 0.15 }}
+                        className="bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden"
+                      >
+                        <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                          <div className="flex items-center gap-2">
+                            <Bell size={13} className="text-indigo-500" />
+                            <span className="text-xs font-semibold text-slate-700">Notifications</span>
+                            {unreadCount > 0 && (
+                              <span className="text-[9px] font-bold bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full">{unreadCount}</span>
+                            )}
                           </div>
-                        ))}
-                      </div>
-                    </motion.div>
-                  </>
-                )}
-              </AnimatePresence>
+                          <button
+                            onClick={markAllRead}
+                            className={`text-[10px] font-semibold cursor-pointer transition-colors ${
+                              unreadCount > 0
+                                ? 'text-indigo-600 hover:underline'
+                                : 'text-slate-300 cursor-not-allowed'
+                            }`}
+                            disabled={unreadCount === 0}
+                          >
+                            Mark all read
+                          </button>
+                        </div>
+                        <div className="divide-y divide-slate-100 overflow-y-auto" style={{ maxHeight: '288px' }}>
+                          {visibleNotifications.length === 0 ? (
+                            <div className="px-4 py-8 text-center">
+                              <div className="text-2xl mb-2">✅</div>
+                              <p className="text-xs font-semibold text-slate-500">All caught up!</p>
+                              <p className="text-[10px] text-slate-400 mt-0.5">No new notifications</p>
+                            </div>
+                          ) : (
+                            visibleNotifications.map(n => (
+                              <div
+                                key={n.id}
+                                onClick={() => handleNotifClick(n)}
+                                className="px-4 py-3 hover:bg-indigo-50/40 transition-colors cursor-pointer group"
+                              >
+                                <div className="flex items-start gap-2.5">
+                                  <span className={`mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                                    n.type === 'success' ? 'bg-emerald-500' : 'bg-indigo-400'
+                                  }`} />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs text-slate-700 leading-snug group-hover:text-indigo-700 transition-colors">{n.text}</p>
+                                    <div className="flex items-center justify-between mt-1">
+                                      <span className="text-[9px] text-slate-400">{n.time}</span>
+                                      <span className="text-[9px] text-indigo-400 font-semibold opacity-0 group-hover:opacity-100 transition-opacity">View →</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                        {visibleNotifications.length > 0 && (
+                          <div className="px-4 py-2.5 border-t border-slate-100 bg-slate-50 text-center">
+                            <span className="text-[10px] text-slate-400">{visibleNotifications.length} unread notification{visibleNotifications.length !== 1 ? 's' : ''}</span>
+                          </div>
+                        )}
+                      </motion.div>
+                    </AnimatePresence>
+                  </div>
+                </>,
+                document.body
+              )}
             </div>
 
             {/* User Profile */}
