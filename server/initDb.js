@@ -49,6 +49,11 @@ async function initDB() {
 
     // Drop tables to apply clean new constraints, relationships and foreign keys (except settings and templates)
     console.log('Dropping existing campaign and logging tables for schema synchronization...');
+    await connection.query('DROP TABLE IF EXISTS list_contacts;');
+    await connection.query('DROP TABLE IF EXISTS contact_lists;');
+    await connection.query('DROP TABLE IF EXISTS contacts;');
+    await connection.query('DROP TABLE IF EXISTS smtp_configs;');
+    await connection.query('DROP TABLE IF EXISTS followup_sequences;');
     await connection.query('DROP TABLE IF EXISTS recipients;');
     await connection.query('DROP TABLE IF EXISTS audit_logs;');
     await connection.query('DROP TABLE IF EXISTS campaigns;');
@@ -85,11 +90,36 @@ async function initDB() {
         status VARCHAR(50) DEFAULT 'Valid',
         reason VARCHAR(255) DEFAULT '',
         sentAt VARCHAR(50) DEFAULT '',
+        openedAt DATETIME DEFAULT NULL,
+        clickedAt DATETIME DEFAULT NULL,
+        repliedAt DATETIME DEFAULT NULL,
+        followupStep INT DEFAULT 0,
         INDEX idx_campaignId (campaignId),
         INDEX idx_email (email)
       );
     `);
     console.log('Upgraded Recipients table created.');
+
+    // 5b. Create Follow-up Sequences Table
+    await connection.query(`
+      CREATE TABLE followup_sequences (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        campaignId VARCHAR(50) NOT NULL,
+        step INT NOT NULL DEFAULT 1,
+        delayDays INT NOT NULL DEFAULT 3,
+        conditions TEXT,
+        condition_logic VARCHAR(10) DEFAULT 'AND',
+        subject VARCHAR(255) NOT NULL,
+        body TEXT NOT NULL,
+        status VARCHAR(50) DEFAULT 'pending',
+        scheduledAt DATETIME DEFAULT NULL,
+        executedAt DATETIME DEFAULT NULL,
+        sentCount INT DEFAULT 0,
+        INDEX idx_fu_campaignId (campaignId),
+        INDEX idx_fu_status (status)
+      );
+    `);
+    console.log('Follow-up Sequences table created.');
 
     // 6. Create Audit Logs Table with campaign tracking columns and cascade rules
     await connection.query(`
@@ -114,6 +144,65 @@ async function initDB() {
     `);
     console.log('Upgraded Audit Logs table created.');
 
+    // 6b. Create Contacts and Lists Tables (Audience)
+    await connection.query(`
+      CREATE TABLE contacts (
+        id VARCHAR(50) PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        name VARCHAR(255) DEFAULT 'Recipient',
+        company VARCHAR(255) DEFAULT 'Enterprise',
+        status VARCHAR(50) DEFAULT 'Subscribed',
+        unsubscribe_token VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log('Contacts table created.');
+
+    await connection.query(`
+      CREATE TABLE contact_lists (
+        id VARCHAR(50) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        description VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log('Contact Lists table created.');
+
+    await connection.query(`
+      CREATE TABLE list_contacts (
+        list_id VARCHAR(50),
+        contact_id VARCHAR(50),
+        PRIMARY KEY (list_id, contact_id),
+        FOREIGN KEY (list_id) REFERENCES contact_lists(id) ON DELETE CASCADE,
+        FOREIGN KEY (contact_id) REFERENCES contacts(id) ON DELETE CASCADE
+      );
+    `);
+    console.log('List Contacts junction table created.');
+
+    // 6c. Create SMTP Configs Table
+    await connection.query(`
+      CREATE TABLE smtp_configs (
+        id VARCHAR(50) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        host VARCHAR(255) NOT NULL,
+        port INT NOT NULL,
+        username VARCHAR(255),
+        password VARCHAR(255),
+        encryption VARCHAR(50) DEFAULT 'TLS',
+        sender_email VARCHAR(255) NOT NULL,
+        sender_name VARCHAR(255),
+        is_active INT DEFAULT 1
+      );
+    `);
+    console.log('SMTP Configs table created.');
+
+    // Seed default SMTP Config
+    await connection.query(`
+      INSERT INTO smtp_configs (id, name, host, port, username, password, encryption, sender_email, sender_name, is_active)
+      VALUES ('default', 'Default SMTP Server', 'smtp.sendgrid.net', 587, 'apikey', 'SG.mock_api_key_value_example', 'TLS', 'campaigns@enterprise.com', 'Enterprise Bulk Mailer', 1);
+    `);
+    console.log('Default SMTP Config seeded.');
+
     // 7. Create Users Table
     await connection.query(`
       CREATE TABLE IF NOT EXISTS users (
@@ -127,22 +216,18 @@ async function initDB() {
     `);
     console.log('Users table checked.');
 
-    // Seed default users if table is empty
-    const [userRows] = await connection.query('SELECT COUNT(*) as count FROM users;');
-    if (userRows[0].count === 0) {
-      const defaultUsers = [
-        { id: '1', name: 'Alexander Wright', email: 'alex@enterprise.com', role: 'Admin', status: 'Active', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80' },
-        { id: '2', name: 'Marcus Chen', email: 'marcus@enterprise.com', role: 'Manager', status: 'Active', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&q=80' },
-        { id: '3', name: 'Sarah Jenkins', email: 'sarah.j@enterprise.com', role: 'Operator', status: 'Active', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=100&q=80' },
-      ];
-      for (const u of defaultUsers) {
-        await connection.query(`
-          INSERT INTO users (id, name, email, role, status, avatar)
-          VALUES (?, ?, ?, ?, ?, ?);
-        `, [u.id, u.name, u.email, u.role, u.status, u.avatar]);
-      }
-      console.log('Seeded default users.');
+    // Seed default users (clean and seed only Vaibhav Soni)
+    await connection.query('DELETE FROM users;');
+    const defaultUsers = [
+      { id: '1', name: 'Vaibhav Soni', email: 'vaibhavsoni1059@gmail.com', role: 'Admin', status: 'Active', avatar: '/male_boy_avatar.png' }
+    ];
+    for (const u of defaultUsers) {
+      await connection.query(`
+        INSERT INTO users (id, name, email, role, status, avatar)
+        VALUES (?, ?, ?, ?, ?, ?);
+      `, [u.id, u.name, u.email, u.role, u.status, u.avatar]);
     }
+    console.log('Seeded Vaibhav Soni as the sole user in database.');
 
     // 8. Create Templates Table (Don't drop to preserve templates)
     await connection.query(`
@@ -341,6 +426,52 @@ async function initDB() {
       `, [log.id, log.date, log.user, log.action, log.status, log.campaignId, log.campaignName, log.subject, log.senderEmail, log.recipientCount, log.deliveryStatus, log.openStatus, log.failureDetails]);
     }
     console.log('Seeded default audit logs.');
+
+    // Seed default contact lists
+    const defaultLists = [
+      { id: 'l1', name: 'Premium Subscribers', description: 'VIP customers and active premium plan subscribers' },
+      { id: 'l2', name: 'Partner Outreach', description: 'Enterprise partners and affiliate contacts' }
+    ];
+
+    for (const list of defaultLists) {
+      await connection.query(`
+        INSERT INTO contact_lists (id, name, description)
+        VALUES (?, ?, ?);
+      `, [list.id, list.name, list.description]);
+    }
+    console.log('Seeded default contact lists.');
+
+    // Seed default contacts
+    const defaultContacts = [
+      { id: 'ct1', email: 'alice.johnson@acme.com', name: 'Alice Johnson', company: 'Acme Corp', status: 'Subscribed', unsubscribe_token: 'ut_alice_123' },
+      { id: 'ct2', email: 'bob.miller@globex.com', name: 'Bob Miller', company: 'Globex Inc', status: 'Subscribed', unsubscribe_token: 'ut_bob_456' },
+      { id: 'ct3', email: 'charlie.davis@hooli.com', name: 'Charlie Davis', company: 'Hooli', status: 'Subscribed', unsubscribe_token: 'ut_charlie_789' },
+      { id: 'ct4', email: 'diana.prince@wayne.com', name: 'Diana Prince', company: 'Wayne Enterprises', status: 'Subscribed', unsubscribe_token: 'ut_diana_012' }
+    ];
+
+    for (const c of defaultContacts) {
+      await connection.query(`
+        INSERT INTO contacts (id, email, name, company, status, unsubscribe_token)
+        VALUES (?, ?, ?, ?, ?, ?);
+      `, [c.id, c.email, c.name, c.company, c.status, c.unsubscribe_token]);
+    }
+    console.log('Seeded default contacts.');
+
+    // Seed default list contacts mappings
+    const defaultListContacts = [
+      { list_id: 'l1', contact_id: 'ct1' },
+      { list_id: 'l1', contact_id: 'ct2' },
+      { list_id: 'l2', contact_id: 'ct3' },
+      { list_id: 'l2', contact_id: 'ct4' }
+    ];
+
+    for (const lc of defaultListContacts) {
+      await connection.query(`
+        INSERT INTO list_contacts (list_id, contact_id)
+        VALUES (?, ?);
+      `, [lc.list_id, lc.contact_id]);
+    }
+    console.log('Seeded default list-contact relations.');
 
     console.log('Database initialization completed successfully.');
   } catch (err) {

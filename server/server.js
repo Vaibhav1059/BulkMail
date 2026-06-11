@@ -6,14 +6,53 @@ import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
 import pool from './db.js';
+import jwt from 'jsonwebtoken';
+import dns from 'dns/promises';
 
 dotenv.config();
 
 const app = express();
 const port = 5000;
 
-app.use(cors());
+const JWT_SECRET = process.env.JWT_SECRET || 'aerosend-secret-token-key-2026';
+
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  credentials: true
+}));
 app.use(express.json());
+
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  
+  if (!token) return res.status(401).json({ error: 'Authentication token missing.' });
+  
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ error: 'Invalid or expired token.' });
+    req.user = user;
+    next();
+  });
+}
+
+// Global API Interceptor for authentication
+app.use((req, res, next) => {
+  const publicPaths = [
+    '/api/auth/login',
+    '/api/tracker/click',
+    '/api/unsubscribe/confirm'
+  ];
+  
+  const isPublic = publicPaths.includes(req.path) || 
+                   req.path.startsWith('/api/tracker/open/') || 
+                   req.path.startsWith('/api/unsubscribe/');
+                   
+  if (isPublic) {
+    return next();
+  }
+  
+  authenticateToken(req, res, next);
+});
 
 // Setup file capture folders
 const sentEmailsDir = path.join(process.cwd(), 'server', 'sent_emails');
@@ -408,7 +447,7 @@ app.delete('/api/templates/:id', async (req, res) => {
 
 // 7. Verify SMTP Connection (Test SMTP Route)
 app.post('/api/settings/verify', async (req, res) => {
-  let { host, port, username, password, encryption, senderEmail } = req.body;
+  let { host, port, username, password, encryption } = req.body;
   
   if (password === '••••••••') {
     const [rows] = await pool.query('SELECT password FROM settings WHERE id = 1;');
@@ -479,14 +518,17 @@ app.post('/api/campaigns/send-test', async (req, res) => {
       .replace(/{{email}}/g, testEmail)
       .replace(/{{company}}/g, sampleCompany);
 
+    const isHtml = /<\/?[a-z][\s\S]*>/i.test(body || '');
     const compiledBody = (body || '')
       .replace(/{{name}}/g, sampleName)
       .replace(/{{email}}/g, testEmail)
-      .replace(/{{company}}/g, sampleCompany)
+      .replace(/{{company}}/g, sampleCompany);
+
+    const formattedBody = isHtml ? compiledBody : compiledBody
       .replace(/\n\n/g, '</p><p style="margin-top: 10px; margin-bottom: 10px;">')
       .replace(/\n/g, '<br/>');
 
-    const htmlBody = `
+    const htmlBody = isHtml ? compiledBody : `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 24px; min-height: 320px; background-color: #f8fafc; color: #0f172a;">
         <div style="max-width: 500px; margin: 0 auto; padding: 24px; font-size: 14px; line-height: 1.6; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
           <!-- Header Logo Simulation -->
@@ -496,7 +538,7 @@ app.post('/api/campaigns/send-test', async (req, res) => {
           </div>
 
           <div style="color: #0f172a;">
-            <p style="margin: 0 0 12px 0;">${compiledBody}</p>
+            <p style="margin: 0 0 12px 0;">${formattedBody}</p>
           </div>
 
           <div style="margin-top: 30px; padding-top: 15px; font-size: 11px; text-align: center; border-top: 1px solid #f1f5f9; color: #64748b;">
@@ -534,7 +576,7 @@ app.post('/api/upload-csv', upload.single('file'), (req, res) => {
 // Sending Simulation Queue Thread
 
 // Fetch SMTP settings helper
-async function getSMTPSettings() {
+async function getSMTPSettings(profileId = null) {
   if (process.env.SMTP_HOST) {
     return {
       host: process.env.SMTP_HOST,
@@ -551,6 +593,30 @@ async function getSMTPSettings() {
       retryAttempts: parseInt(process.env.SMTP_RETRY_ATTEMPTS) || 3
     };
   }
+  
+  if (profileId && profileId !== 'default' && profileId !== 'Local Mock') {
+    const [rows] = await pool.query('SELECT * FROM smtp_configs WHERE id = ?;', [profileId]);
+    if (rows && rows.length > 0) {
+      const cfg = rows[0];
+      const [limitRows] = await pool.query('SELECT emailsPerHour, emailsPerDay, delaySeconds, connectionTimeout, retryAttempts FROM settings WHERE id = 1;');
+      const limits = limitRows[0] || {};
+      return {
+        host: cfg.host,
+        port: cfg.port,
+        username: cfg.username,
+        password: cfg.password,
+        encryption: cfg.encryption,
+        senderEmail: cfg.sender_email,
+        senderName: cfg.sender_name,
+        emailsPerHour: limits.emailsPerHour || 5000,
+        emailsPerDay: limits.emailsPerDay || 50000,
+        delaySeconds: limits.delaySeconds || 0.5,
+        connectionTimeout: limits.connectionTimeout || 10,
+        retryAttempts: limits.retryAttempts || 3
+      };
+    }
+  }
+  
   const [rows] = await pool.query('SELECT * FROM settings WHERE id = 1;');
   return rows[0];
 }
@@ -573,8 +639,14 @@ function compileTemplate(text, recipient, nameVal, companyVal, emailAddress) {
 }
 
 // Helper to compile email body into layout HTML
-function compileBodyToHtml(bodyText, recipient, nameVal, companyVal, emailAddress) {
+function compileBodyToHtml(bodyText, recipient, nameVal, companyVal, emailAddress, contactId = 'unknown', token = 'default') {
   const compiledText = compileTemplate(bodyText, recipient, nameVal, companyVal, emailAddress);
+  const isHtml = /<\/?[a-z][\s\S]*>/i.test(bodyText || '');
+
+  if (isHtml) {
+    return compiledText;
+  }
+
   const formattedTextHtml = compiledText
     .replace(/\n\n/g, '</p><p style="margin-top: 12px; margin-bottom: 12px;">')
     .replace(/\n/g, '<br/>');
@@ -594,7 +666,7 @@ function compileBodyToHtml(bodyText, recipient, nameVal, companyVal, emailAddres
 
         <div style="margin-top: 30px; padding-top: 15px; font-size: 11px; text-align: center; border-top: 1px solid #f1f5f9; color: #64748b;">
           You are receiving this email because you are registered under ${nameVal}.<br/>
-          AeroSend Inc, 100 Pine St, San Francisco, CA. <a href="#" style="color: #6366f1; text-decoration: none;">Unsubscribe</a>
+          AeroSend Inc, 100 Pine St, San Francisco, CA. <a href="http://localhost:5000/api/unsubscribe/${contactId}/${token}" style="color: #6366f1; text-decoration: none;">Unsubscribe</a>
         </div>
       </div>
     </div>
@@ -627,8 +699,8 @@ async function processQueueStep() {
     const emailAddress = recipient.email;
 
     // Support both immediate sending (from frontend CSV) and scheduled sending (from DB)
-    let nameVal = 'Customer';
-    let companyVal = 'Enterprise';
+    let nameVal;
+    let companyVal;
     
     if (recipient.data && activeSendingState.mappedFields) {
       nameVal = recipient.data[activeSendingState.mappedFields.name] || 'Customer';
@@ -663,7 +735,7 @@ async function processQueueStep() {
     }
 
     // Try real send or local HTML write
-    let success = false;
+    let success;
     let errorMsg = 'SMTP delivery timeout';
 
     // 1. Local HTML Capture write (Verification folder)
@@ -673,9 +745,33 @@ async function processQueueStep() {
       fs.mkdirSync(campaignFolder, { recursive: true });
     }
 
+    // Lookup contact for unsubscribe token & id mapping
+    let contactId = 'unknown';
+    let token = 'default';
+    try {
+      const [contactRows] = await pool.query('SELECT id, unsubscribe_token FROM contacts WHERE email = ? LIMIT 1;', [emailAddress]);
+      if (contactRows && contactRows.length > 0) {
+        contactId = contactRows[0].id;
+        token = contactRows[0].unsubscribe_token;
+      }
+    } catch (dbErr) {
+      console.error('Failed contact lookup for tracking:', dbErr.message);
+    }
+
     // Compile message templates
     const compiledSubject = compileTemplate(activeSendingState.subject, recipient, nameVal, companyVal, emailAddress);
-    const compiledHtml = compileBodyToHtml(activeSendingState.body, recipient, nameVal, companyVal, emailAddress);
+    let compiledHtml = compileBodyToHtml(activeSendingState.body, recipient, nameVal, companyVal, emailAddress, contactId, token);
+    
+    // Inject click tracking for other links
+    compiledHtml = compiledHtml.replace(/href="([^"]+)"/g, (match, url) => {
+      if (url.includes('/api/unsubscribe/') || url === '#') {
+        return match;
+      }
+      return `href="http://localhost:5000/api/tracker/click?recipient=${recipient.id || 'unknown'}&url=${encodeURIComponent(url)}"`;
+    });
+    
+    // Inject open tracking GIF before body tag ends
+    compiledHtml = compiledHtml + `\n<!-- Open Tracker --><img src="http://localhost:5000/api/tracker/open/${recipient.id || 'unknown'}.gif" width="1" height="1" style="display:none;" />`;
     
     const emailFileName = `${index + 1}_${emailAddress.replace(/[^a-z0-9]/gi, '_')}.html`;
     const emailFilePath = path.join(campaignFolder, emailFileName);
@@ -940,7 +1036,7 @@ async function resumeInterruptedCampaigns() {
 
 // Launch Endpoint
 app.post('/api/sending/launch', async (req, res) => {
-  const { campaignId, campaignName, subject, body, recipients, range, concurrency, delay } = req.body;
+  const { campaignId, campaignName, subject, body, recipients, range, concurrency, delay, smtpUsed } = req.body;
   
   if (sendingTimer) {
     clearTimeout(sendingTimer);
@@ -972,10 +1068,11 @@ app.post('/api/sending/launch', async (req, res) => {
     concurrency: parseInt(concurrency) || 1,
     delayOverride: parseFloat(delay) || 0.5,
     showAdminSummary: false,
-    rangeIndex: range
+    rangeIndex: range,
+    smtpUsed: smtpUsed || 'default'
   };
 
-  const smtpSettings = await getSMTPSettings();
+  const smtpSettings = await getSMTPSettings(smtpUsed);
   const sendTime = new Date().toISOString();
 
   // Update DB status to Sending with SMTP metadata and Send Time
@@ -1214,6 +1311,565 @@ app.delete('/api/campaigns/:id/history', async (req, res) => {
   }
 });
 
+// Login Endpoint
+app.post('/api/auth/login', async (req, res) => {
+  const { email } = req.body;
+  try {
+    const [rows] = await pool.query('SELECT * FROM users WHERE email = ?;', [email]);
+    if (rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid user email. Access Denied.' });
+    }
+    const user = rows[0];
+    if (user.status !== 'Active') {
+      return res.status(403).json({ error: 'User account is deactivated.' });
+    }
+    const token = jwt.sign(
+      { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+    res.json({ token, user });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Telemetry tracker: Open rate pixel resolver
+app.get('/api/tracker/open/:recipientId.gif', async (req, res) => {
+  const { recipientId } = req.params;
+  try {
+    const openedAt = new Date();
+    await pool.query(
+      "UPDATE recipients SET status = 'Opened', openedAt = ?, sentAt = ? WHERE id = ? AND status = 'Sent';",
+      [openedAt, openedAt.toISOString(), recipientId]
+    );
+    await logEvent('Tracker Engine', `Recipient ID ${recipientId} opened the email.`, 'Success');
+  } catch (err) {
+    console.error('[Open Tracker Error]:', err.message);
+  }
+
+  const imgBuffer = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+  res.writeHead(200, {
+    'Content-Type': 'image/gif',
+    'Content-Length': imgBuffer.length,
+    'Cache-Control': 'no-store, no-cache, must-revalidate, private'
+  });
+  res.end(imgBuffer);
+});
+
+// Telemetry tracker: Click redirect handler
+app.get('/api/tracker/click', async (req, res) => {
+  const { recipient, url } = req.query;
+  try {
+    if (recipient && url) {
+      const clickedAt = new Date();
+      await pool.query(
+        "UPDATE recipients SET status = 'Clicked', clickedAt = ?, sentAt = ? WHERE id = ?;",
+        [clickedAt, clickedAt.toISOString(), recipient]
+      );
+      await logEvent('Tracker Engine', `Recipient ID ${recipient} clicked link: ${url}`, 'Success');
+    }
+  } catch (err) {
+    console.error('[Click Tracker Error]:', err.message);
+  }
+
+  if (url) {
+    res.redirect(url);
+  } else {
+    res.status(400).send('Invalid redirect parameters.');
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────
+// FOLLOW-UP SEQUENCE ROUTES
+// ─────────────────────────────────────────────────────────────────
+
+// Create follow-up sequence steps for a campaign
+app.post('/api/campaigns/:id/followups', async (req, res) => {
+  const { id } = req.params;
+  const { sequences } = req.body;
+  if (!Array.isArray(sequences) || sequences.length === 0) {
+    return res.status(400).json({ error: 'No sequence steps provided.' });
+  }
+  try {
+    await pool.query('DELETE FROM followup_sequences WHERE campaignId = ?;', [id]);
+    for (const seq of sequences) {
+      const conditionsJson = JSON.stringify(Array.isArray(seq.conditions) ? seq.conditions : [seq.conditions || 'not_opened']);
+      const condLogic = (seq.condition_logic || 'AND').toUpperCase();
+      await pool.query(
+        `INSERT INTO followup_sequences (campaignId, step, delayDays, conditions, condition_logic, subject, body, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending');`,
+        [id, seq.step, seq.delayDays, conditionsJson, condLogic, seq.subject, seq.body]
+      );
+    }
+    await logEvent('Vaibhav Soni', `Configured ${sequences.length} follow-up step(s) for campaign ${id}.`, 'Success');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get follow-up sequences for a campaign
+app.get('/api/campaigns/:id/followups', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [rows] = await pool.query(
+      'SELECT * FROM followup_sequences WHERE campaignId = ? ORDER BY step ASC;',
+      [id]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update a single follow-up step
+app.put('/api/followups/:id', async (req, res) => {
+  const { id } = req.params;
+  const { delayDays, conditions, condition_logic, subject, body } = req.body;
+  try {
+    const conditionsJson = JSON.stringify(Array.isArray(conditions) ? conditions : [conditions || 'not_opened']);
+    const condLogic = (condition_logic || 'AND').toUpperCase();
+    await pool.query(
+      'UPDATE followup_sequences SET delayDays = ?, conditions = ?, condition_logic = ?, subject = ?, body = ? WHERE id = ?;',
+      [delayDays, conditionsJson, condLogic, subject, body, id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a follow-up step
+app.delete('/api/followups/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query('DELETE FROM followup_sequences WHERE id = ?;', [id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get all follow-up sequences (for dashboard overview)
+app.get('/api/followups', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT fs.*, c.name as campaignName 
+       FROM followup_sequences fs
+       LEFT JOIN campaigns c ON fs.campaignId = c.id
+       ORDER BY fs.campaignId, fs.step ASC;`
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────
+// FOLLOW-UP CRON ENGINE (runs every hour)
+// ─────────────────────────────────────────────────────────────────
+
+// Build WHERE clause for a single condition keyword
+function conditionToSQL(cond) {
+  switch (cond) {
+    case 'not_opened':  return "openedAt IS NULL AND status = 'Sent'";
+    case 'not_clicked': return "clickedAt IS NULL";
+    case 'no_reply':    return "clickedAt IS NULL AND repliedAt IS NULL";
+    default:            return "openedAt IS NULL AND status = 'Sent'";
+  }
+}
+
+async function checkAndSendFollowups() {
+  try {
+    const [sequences] = await pool.query(
+      "SELECT * FROM followup_sequences WHERE status = 'pending' ORDER BY campaignId, step ASC;"
+    );
+    if (!sequences || sequences.length === 0) return;
+
+    const smtpSettings = await getSMTPSettings();
+    const isMock = smtpSettings.host.includes('mock') || smtpSettings.password.includes('mock');
+
+    let transporter = null;
+    if (!isMock) {
+      transporter = nodemailer.createTransport({
+        host: smtpSettings.host,
+        port: parseInt(smtpSettings.port),
+        secure: smtpSettings.encryption === 'SSL',
+        auth: { user: smtpSettings.username, pass: smtpSettings.password },
+        tls: { rejectUnauthorized: false }
+      });
+    }
+
+    for (const seq of sequences) {
+      const [campRows] = await pool.query(
+        "SELECT * FROM campaigns WHERE id = ? AND status = 'Completed';",
+        [seq.campaignId]
+      );
+      if (!campRows || campRows.length === 0) continue;
+
+      const campaign = campRows[0];
+      const completionTime = campaign.completionTime ? new Date(campaign.completionTime) : null;
+      if (!completionTime) continue;
+
+      const now = new Date();
+      const triggerTime = new Date(completionTime.getTime() + seq.delayDays * 24 * 60 * 60 * 1000);
+      if (now < triggerTime) continue;
+
+      console.log(`[Follow-up Engine] Processing Step ${seq.step} for "${campaign.name}"...`);
+
+      // ── Build multi-condition WHERE clause ──────────────────────
+      let conditionsList = ['not_opened'];
+      try { conditionsList = JSON.parse(seq.conditions || '["not_opened"]'); } catch {}
+      const logic = (seq.condition_logic || 'AND').toUpperCase();
+      const condClauses = conditionsList.map(c => `(${conditionToSQL(c)})`).join(` ${logic} `);
+      const whereClause = `campaignId = ? AND (${condClauses}) AND followupStep < ?`;
+      // ────────────────────────────────────────────────────────────
+
+      const [recipients] = await pool.query(
+        `SELECT * FROM recipients WHERE ${whereClause};`,
+        [seq.campaignId, seq.step]
+      );
+
+      if (!recipients || recipients.length === 0) {
+        await pool.query(
+          "UPDATE followup_sequences SET status = 'executed', executedAt = ?, sentCount = 0 WHERE id = ?;",
+          [now, seq.id]
+        );
+        await logEvent('Follow-up Engine', `Follow-up Step ${seq.step} for "${campaign.name}": No eligible recipients.`, 'Success');
+        continue;
+      }
+
+      let followupSent = 0;
+      let followupFailed = 0;
+
+      for (const recipient of recipients) {
+        const nameVal = recipient.name || 'Customer';
+        const companyVal = recipient.company || 'Enterprise';
+        const emailAddress = recipient.email;
+
+        const compiledSubject = compileTemplate(seq.subject, { data: recipient }, nameVal, companyVal, emailAddress);
+        const compiledHtml = compileBodyToHtml(seq.body, { data: recipient }, nameVal, companyVal, emailAddress, 'unknown', 'default');
+        const trackedHtml = compiledHtml + `\n<!-- Follow-up Open Tracker --><img src="http://localhost:5000/api/tracker/open/${recipient.id}.gif" width="1" height="1" style="display:none;" />`;
+
+        let success = false;
+        if (!isMock) {
+          try {
+            await transporter.sendMail({
+              from: `"${smtpSettings.senderName}" <${smtpSettings.senderEmail}>`,
+              to: emailAddress,
+              subject: compiledSubject,
+              html: trackedHtml
+            });
+            success = true;
+          } catch (err) {
+            console.error(`[Follow-up Engine] Failed to send to ${emailAddress}:`, err.message);
+          }
+        } else {
+          success = Math.random() > 0.05;
+        }
+
+        if (success) {
+          followupSent++;
+          await pool.query('UPDATE recipients SET followupStep = ? WHERE id = ?;', [seq.step, recipient.id]);
+        } else {
+          followupFailed++;
+        }
+      }
+
+      await pool.query(
+        "UPDATE followup_sequences SET status = 'executed', executedAt = ?, sentCount = ? WHERE id = ?;",
+        [now, followupSent, seq.id]
+      );
+
+      const condLabel = `${conditionsList.join(` ${logic} `)} (${logic})`;
+      await logEvent(
+        'Follow-up Engine',
+        `Follow-up Step ${seq.step} for "${campaign.name}" executed. Sent: ${followupSent}, Failed: ${followupFailed}. Conditions: [${condLabel}].`,
+        followupFailed > 0 ? 'Warning' : 'Success',
+        seq.campaignId
+      );
+      console.log(`[Follow-up Engine] Step ${seq.step} done — ${followupSent} sent, ${followupFailed} failed. Logic: ${condLabel}`);
+    }
+  } catch (err) {
+    console.error('[Follow-up Engine Error]:', err.message);
+  }
+}
+
+// Unsubscribe web page confirmation
+app.get('/api/unsubscribe/:recipientId/:token', async (req, res) => {
+  const { recipientId, token } = req.params;
+  res.send(`
+    <html>
+      <head>
+        <title>Unsubscribe Confirmation</title>
+        <style>
+          body { font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background-color: #f8fafc; margin: 0; }
+          .card { background: white; padding: 32px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; max-width: 400px; border: 1px solid #e2e8f0; }
+          h2 { color: #0f172a; margin: 0 0 12px 0; }
+          p { color: #64748b; font-size: 14px; line-height: 1.5; margin: 0 0 24px 0; }
+          button { background: #6366f1; color: white; border: none; padding: 10px 20px; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 14px; }
+          button:hover { background: #4f46e5; }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <h2>Confirm Unsubscribe</h2>
+          <p>Are you sure you want to opt out and stop receiving marketing emails from this sender?</p>
+          <form action="/api/unsubscribe/confirm" method="POST">
+            <input type="hidden" name="recipientId" value="${recipientId}" />
+            <input type="hidden" name="token" value="${token}" />
+            <button type="submit">Yes, Unsubscribe</button>
+          </form>
+        </div>
+      </body>
+    </html>
+  `);
+});
+
+// Unsubscribe submit action
+app.post('/api/unsubscribe/confirm', async (req, res) => {
+  const { recipientId, token } = req.body;
+  try {
+    const [rows] = await pool.query('SELECT * FROM contacts WHERE id = ? AND unsubscribe_token = ?;', [recipientId, token]);
+    if (rows.length > 0) {
+      const contact = rows[0];
+      await pool.query("UPDATE contacts SET status = 'Unsubscribed' WHERE id = ?;", [contact.id]);
+      await logEvent('Unsubscribe Engine', `User ${contact.email} opted out successfully.`, 'Success');
+      res.send(`
+        <html>
+          <head>
+            <title>Unsubscribed Successfully</title>
+            <style>
+              body { font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background-color: #f8fafc; margin: 0; }
+              .card { background: white; padding: 32px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; max-width: 400px; border: 1px solid #e2e8f0; }
+              h2 { color: #059669; margin: 0 0 12px 0; }
+              p { color: #64748b; font-size: 14px; line-height: 1.5; margin: 0; }
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <h2>Opt-out Successful</h2>
+              <p>You have been successfully removed from our mailing list.</p>
+            </div>
+          </body>
+        </html>
+      `);
+    } else {
+      res.status(400).send('Invalid or expired unsubscribe token parameters.');
+    }
+  } catch (err) {
+    res.status(500).send(err.message);
+  }
+});
+
+// Contacts APIs
+app.get('/api/contacts', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM contacts ORDER BY created_at DESC;');
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/contacts', async (req, res) => {
+  const { email, name, company } = req.body;
+  const id = 'ct' + Math.random().toString(36).substr(2, 9);
+  const token = Math.random().toString(36).substr(2, 12);
+  try {
+    const [existing] = await pool.query('SELECT * FROM contacts WHERE email = ?;', [email]);
+    if (existing.length > 0) {
+      await pool.query('UPDATE contacts SET name = ?, company = ? WHERE id = ?;', [name, company, existing[0].id]);
+      return res.json({ success: true, contactId: existing[0].id });
+    }
+    await pool.query(
+      `INSERT INTO contacts (id, email, name, company, status, unsubscribe_token)
+       VALUES (?, ?, ?, ?, 'Subscribed', ?);`,
+      [id, email, name, company, token]
+    );
+    res.json({ success: true, contactId: id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Lists APIs
+app.get('/api/lists', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM contact_lists ORDER BY created_at DESC;');
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/lists', async (req, res) => {
+  const { name, description } = req.body;
+  const id = 'l' + Math.random().toString(36).substr(2, 9);
+  try {
+    await pool.query('INSERT INTO contact_lists (id, name, description) VALUES (?, ?, ?);', [id, name, description]);
+    res.json({ success: true, listId: id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/lists/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query('DELETE FROM contact_lists WHERE id = ?;', [id]);
+    await pool.query('DELETE FROM list_contacts WHERE list_id = ?;', [id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/lists/:id/contacts', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [rows] = await pool.query(
+      `SELECT c.* FROM contacts c 
+       JOIN list_contacts lc ON c.id = lc.contact_id 
+       WHERE lc.list_id = ?;`,
+      [id]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/lists/:id/contacts', async (req, res) => {
+  const { id } = req.params;
+  const { contacts } = req.body; // Array of { email, name, company }
+  try {
+    for (const c of contacts) {
+      const contactId = 'ct' + Math.random().toString(36).substr(2, 9);
+      const token = Math.random().toString(36).substr(2, 12);
+      
+      const [existing] = await pool.query('SELECT * FROM contacts WHERE email = ?;', [c.email]);
+      let finalContactId = contactId;
+      if (existing.length > 0) {
+        finalContactId = existing[0].id;
+        await pool.query('UPDATE contacts SET name = ?, company = ? WHERE id = ?;', [c.name || 'Recipient', c.company || 'Enterprise', finalContactId]);
+      } else {
+        await pool.query(
+          `INSERT INTO contacts (id, email, name, company, status, unsubscribe_token)
+           VALUES (?, ?, ?, ?, 'Subscribed', ?);`,
+          [contactId, c.email, c.name || 'Recipient', c.company || 'Enterprise', token]
+        );
+      }
+      await pool.query('INSERT INTO list_contacts (list_id, contact_id) VALUES (?, ?);', [id, finalContactId]);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// SMTP Configs APIs
+app.get('/api/smtp-configs', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM smtp_configs;');
+    const configs = rows.map(cfg => {
+      const copy = { ...cfg };
+      if (copy.password) {
+        copy.password = '••••••••';
+      }
+      return copy;
+    });
+    res.json(configs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/smtp-configs', async (req, res) => {
+  const { name, host, port, username, password, encryption, sender_email, sender_name, is_active } = req.body;
+  const id = 'smtp' + Math.random().toString(36).substr(2, 9);
+  try {
+    await pool.query(
+      `INSERT INTO smtp_configs (id, name, host, port, username, password, encryption, sender_email, sender_name, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+      [id, name, host, parseInt(port), username, password, encryption, sender_email, sender_name, is_active ? 1 : 0]
+    );
+    res.json({ success: true, configId: id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/smtp-configs/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, host, port, username, password, encryption, sender_email, sender_name, is_active } = req.body;
+  try {
+    if (password === '••••••••') {
+      await pool.query(
+        `UPDATE smtp_configs SET name = ?, host = ?, port = ?, username = ?, encryption = ?, sender_email = ?, sender_name = ?, is_active = ?
+         WHERE id = ?;`,
+        [name, host, parseInt(port), username, encryption, sender_email, sender_name, is_active ? 1 : 0, id]
+      );
+    } else {
+      await pool.query(
+        `UPDATE smtp_configs SET name = ?, host = ?, port = ?, username = ?, password = ?, encryption = ?, sender_email = ?, sender_name = ?, is_active = ?
+         WHERE id = ?;`,
+        [name, host, parseInt(port), username, password, encryption, sender_email, sender_name, is_active ? 1 : 0, id]
+      );
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/smtp-configs/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query('DELETE FROM smtp_configs WHERE id = ?;', [id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/smtp-configs/verify', async (req, res) => {
+  let { host, port, username, password, encryption } = req.body;
+  
+  if (password === '••••••••' && req.body.id) {
+    const [rows] = await pool.query('SELECT password FROM smtp_configs WHERE id = ?;', [req.body.id]);
+    if (rows[0] && rows[0].password) {
+      password = rows[0].password;
+    }
+  }
+  
+  if (host.includes('mock') || (password && password.includes('mock'))) {
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    return res.json({ success: true, isMock: true, message: 'Mock SMTP verification successful.' });
+  }
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host,
+      port: parseInt(port),
+      secure: encryption === 'SSL',
+      auth: {
+        user: username,
+        pass: password
+      },
+      tls: {
+        rejectUnauthorized: false
+      }
+    });
+
+    await transporter.verify();
+    res.json({ success: true, isMock: false });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 async function checkAndLaunchScheduledCampaigns() {
   if (activeSendingState.status === 'sending') {
     return;
@@ -1308,8 +1964,74 @@ async function checkAndLaunchScheduledCampaigns() {
   }
 }
 
+// MX DNS cache to avoid repeated lookups for the same domain in one session
+const mxCache = new Map();
+
+// Bulk Email MX Validation Route
+// Accepts: { emails: string[] }
+// Returns: { results: [{ email, status, reason }] }
+app.post('/api/validate-emails', async (req, res) => {
+  const { emails } = req.body;
+  if (!Array.isArray(emails) || emails.length === 0) {
+    return res.status(400).json({ error: 'No emails provided.' });
+  }
+
+  // Cap at 500 per request to avoid abuse
+  const emailList = emails.slice(0, 500);
+
+  // Basic syntax regex
+  const syntaxRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
+  // Pre-collect unique domains to batch DNS lookups
+  const domainSet = new Set();
+  for (const email of emailList) {
+    const parts = String(email).trim().split('@');
+    if (parts.length === 2 && syntaxRegex.test(String(email).trim())) {
+      domainSet.add(parts[1].toLowerCase());
+    }
+  }
+
+  // Resolve MX for each unique domain (parallel, cached)
+  const domainResults = {};
+  await Promise.all([...domainSet].map(async (domain) => {
+    if (mxCache.has(domain)) {
+      domainResults[domain] = mxCache.get(domain);
+      return;
+    }
+    try {
+      const records = await dns.resolveMx(domain);
+      const hasMx = Array.isArray(records) && records.length > 0;
+      domainResults[domain] = hasMx ? 'ok' : 'no_mx';
+    } catch {
+      domainResults[domain] = 'no_mx';
+    }
+    // Cache for the duration of this server session
+    mxCache.set(domain, domainResults[domain]);
+  }));
+
+  // Build per-email results
+  const results = emailList.map(rawEmail => {
+    const email = String(rawEmail).trim();
+    if (!syntaxRegex.test(email)) {
+      return { email, status: 'invalid_syntax', reason: 'Malformed email format' };
+    }
+    const domain = email.split('@')[1].toLowerCase();
+    if (domainResults[domain] === 'no_mx') {
+      return { email, status: 'no_mx', reason: `No mail server found for domain: ${domain}` };
+    }
+    return { email, status: 'valid', reason: '' };
+  });
+
+  res.json({ results });
+});
+
 // Start the scheduled campaign polling loop (checks every 10 seconds)
 setInterval(checkAndLaunchScheduledCampaigns, 10000);
+
+// Follow-up email cron — runs every hour to dispatch pending follow-up sequences
+setInterval(checkAndSendFollowups, 60 * 60 * 1000);
+// Also run once on startup to catch any follow-ups that were due while server was down
+setTimeout(checkAndSendFollowups, 5000);
 
 // Run startup recovery checks for any interrupted campaigns
 resumeInterruptedCampaigns();

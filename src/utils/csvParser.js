@@ -164,3 +164,73 @@ export function generateValidationReport(rows, emailKey) {
     }
   };
 }
+
+/**
+ * Deep MX DNS validation — calls the backend to check if each
+ * email's domain has real mail servers configured.
+ *
+ * @param {object} report - Result from generateValidationReport()
+ * @param {string} apiBase - e.g. 'http://localhost:5000/api'
+ * @param {string} token   - JWT auth token from localStorage
+ * @returns {object} Updated report with MX check results merged in
+ */
+export async function runMXValidation(report, apiBase, token) {
+  // Only send currently-Valid emails for MX check (no point re-checking already-invalid ones)
+  const validEmails = report.rows
+    .filter(r => r.status === 'Valid')
+    .map(r => r.email);
+
+  if (validEmails.length === 0) return report;
+
+  try {
+    const res = await fetch(`${apiBase}/validate-emails`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ emails: validEmails })
+    });
+
+    if (!res.ok) return report; // silently fall back if server error
+
+    const { results } = await res.json();
+
+    // Build a quick lookup by email address
+    const mxMap = {};
+    for (const r of results) {
+      mxMap[r.email.toLowerCase()] = r;
+    }
+
+    // Merge MX results back into the report rows
+    let newValid = 0;
+    let newInvalid = 0;
+
+    const updatedRows = report.rows.map(row => {
+      if (row.status !== 'Valid') {
+        // Already counted in original pass — keep as-is
+        return row;
+      }
+      const mx = mxMap[row.email.toLowerCase()];
+      if (mx && mx.status === 'no_mx') {
+        newInvalid++;
+        return { ...row, status: 'Invalid', reason: mx.reason };
+      }
+      newValid++;
+      return row;
+    });
+
+    const summary = {
+      total: report.summary.total,
+      valid: newValid,
+      invalid: report.summary.invalid + newInvalid,
+      duplicates: report.summary.duplicates
+    };
+
+    return { rows: updatedRows, summary };
+  } catch {
+    // Network error — return original report unchanged
+    return report;
+  }
+}
+

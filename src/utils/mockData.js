@@ -1,10 +1,7 @@
 // Mock data structures for the bulk email sender dashboard
 
 export const defaultUsers = [
-  { id: '1', name: 'Alexander Wright', email: 'alex@enterprise.com', role: 'Admin', status: 'Active', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80' },
-  { id: '2', name: 'Marcus Chen', email: 'marcus@enterprise.com', role: 'Manager', status: 'Active', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=100&q=80' },
-  { id: '3', name: 'Sarah Jenkins', email: 'sarah.j@enterprise.com', role: 'Operator', status: 'Active', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=100&q=80' },
-  { id: '4', name: 'Elena Rostova', email: 'elena@enterprise.com', role: 'Operator', status: 'Inactive', avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=100&q=80' },
+  { id: '1', name: 'Vaibhav Soni', email: 'vaibhavsoni1059@gmail.com', role: 'Admin', status: 'Active', avatar: '/male_boy_avatar.png' },
 ];
 
 export const defaultCampaigns = [
@@ -32,7 +29,7 @@ export const defaultCampaigns = [
     status: 'Completed',
     date: '2026-05-30T14:15:00Z',
     scheduleDate: null,
-    creator: 'Alexander Wright'
+    creator: 'Vaibhav Soni'
   },
   {
     id: 'c3',
@@ -63,10 +60,10 @@ export const defaultCampaigns = [
 ];
 
 export const defaultAuditLogs = [
-  { id: 'l1', date: '2026-06-02T11:20:00Z', user: 'Alexander Wright', action: 'Updated SMTP Server Configurations', status: 'Success' },
-  { id: 'l2', date: '2026-06-02T10:45:00Z', user: 'Marcus Chen', action: 'Created Campaign "Developer API Conference Invitation"', status: 'Success' },
-  { id: 'l3', date: '2026-06-01T17:15:00Z', user: 'Sarah Jenkins', action: 'Drafted Campaign "SaaS Platform Terms Updates"', status: 'Success' },
-  { id: 'l4', date: '2026-05-30T14:15:00Z', user: 'Alexander Wright', action: 'Launched Campaign "Customer Re-engagement Campaign"', status: 'Success' },
+  { id: 'l1', date: '2026-06-02T11:20:00Z', user: 'Vaibhav Soni', action: 'Updated SMTP Server Configurations', status: 'Success' },
+  { id: 'l2', date: '2026-06-02T10:45:00Z', user: 'Vaibhav Soni', action: 'Created Campaign "Developer API Conference Invitation"', status: 'Success' },
+  { id: 'l3', date: '2026-06-01T17:15:00Z', user: 'Vaibhav Soni', action: 'Drafted Campaign "SaaS Platform Terms Updates"', status: 'Success' },
+  { id: 'l4', date: '2026-05-30T14:15:00Z', user: 'Vaibhav Soni', action: 'Launched Campaign "Customer Re-engagement Campaign"', status: 'Success' },
   { id: 'l5', date: '2026-05-30T14:18:22Z', user: 'System Mailer', action: 'Campaign "Customer Re-engagement Campaign" finished sending. (8 Bounced)', status: 'Warning' },
   { id: 'l6', date: '2026-05-28T10:30:00Z', user: 'Marcus Chen', action: 'Launched Campaign "Q3 Product Newsletter Launch"', status: 'Success' },
   { id: 'l7', date: '2026-05-28T10:35:10Z', user: 'System Mailer', action: 'Campaign "Q3 Product Newsletter Launch" finished sending. (All Sent)', status: 'Success' },

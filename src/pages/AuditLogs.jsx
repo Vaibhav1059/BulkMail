@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useContext } from 'react';
-import { AppContext, API_BASE } from '../context/AppContext';
+import { useState, useContext } from 'react';
+import { AppContext } from '../context/AppContext';
+import { API_BASE, authFetch } from '../utils/api';
 import { useNavigate } from 'react-router-dom';
 import './AuditLogs.css';
 import {
@@ -24,9 +25,7 @@ import {
   Archive,
   AlertOctagon,
   Undo,
-  Info,
-  Check,
-  Plus
+  Info
 } from 'lucide-react';
 
 export const AuditLogs = () => {
@@ -65,20 +64,15 @@ export const AuditLogs = () => {
   const [confirmAction, setConfirmAction] = useState(null); // { type, title, description, payload }
   const [toast, setToast] = useState(null);
 
-  // Reset page when recipient filters change
-  useEffect(() => {
-    setRecipientPage(1);
-  }, [recipientSearch, recipientStatusFilter, recipientSort]);
-
-  // Fetch recipients list and campaign details when detailLog is selected
-  useEffect(() => {
-    if (detailLog && detailLog.campaignId) {
+  const handleOpenDetails = (log) => {
+    setDetailLog(log);
+    if (log && log.campaignId) {
       setLoadingRecipients(true);
       setDetailRecipients([]);
       setDetailCampaign(null);
 
       // Fetch recipients list
-      fetch(`${API_BASE}/campaigns/${detailLog.campaignId}/recipients`)
+      authFetch(`${API_BASE}/campaigns/${log.campaignId}/recipients`)
         .then(res => res.json())
         .then(data => {
           setDetailRecipients(data);
@@ -90,7 +84,7 @@ export const AuditLogs = () => {
         });
 
       // Fetch campaign details for message body preview
-      fetch(`${API_BASE}/campaigns/${detailLog.campaignId}`)
+      authFetch(`${API_BASE}/campaigns/${log.campaignId}`)
         .then(res => {
           if (!res.ok) throw new Error('Campaign not found');
           return res.json();
@@ -105,7 +99,7 @@ export const AuditLogs = () => {
       setDetailRecipients([]);
       setDetailCampaign(null);
     }
-  }, [detailLog]);
+  };
 
   // Toast notification helper
   const showToast = (message, type = 'success') => {
@@ -163,14 +157,14 @@ export const AuditLogs = () => {
       showToast('Fetching campaign template & recipients...', 'info');
 
       // 1. Fetch recipients
-      const resRec = await fetch(`${API_BASE}/campaigns/${log.campaignId}/recipients`);
+      const resRec = await authFetch(`${API_BASE}/campaigns/${log.campaignId}/recipients`);
       if (!resRec.ok) throw new Error('Failed to load recipients list.');
       const recipientsList = await resRec.json();
 
       // 2. Fetch campaign template details
       let bodyText = log.body || '';
       try {
-        const resCamp = await fetch(`${API_BASE}/campaigns/${log.campaignId}`);
+        const resCamp = await authFetch(`${API_BASE}/campaigns/${log.campaignId}`);
         if (resCamp.ok) {
           const campData = await resCamp.json();
           bodyText = campData.body || bodyText;
@@ -310,10 +304,15 @@ export const AuditLogs = () => {
   const renderMockBodyText = (text) => {
     if (!text) return 'No message content drafted for this activity log.';
     
-    // Replace double newlines and standard newlines
-    let formattedText = text
-      .replace(/\n\n/g, '</p><p style="margin-top: 12px; margin-bottom: 12px;">')
-      .replace(/\n/g, '<br/>');
+    const isHtml = /<\/?[a-z][\s\S]*>/i.test(text);
+
+    let formattedText = text;
+    if (!isHtml) {
+      // Replace double newlines and standard newlines
+      formattedText = text
+        .replace(/\n\n/g, '</p><p style="margin-top: 12px; margin-bottom: 12px;">')
+        .replace(/\n/g, '<br/>');
+    }
 
     // Highlight personalization placeholders in preview modal
     const highlight = (tag) => 
@@ -323,6 +322,10 @@ export const AuditLogs = () => {
       .replace(/{{name}}/g, highlight('{{name}}'))
       .replace(/{{email}}/g, highlight('{{email}}'))
       .replace(/{{company}}/g, highlight('{{company}}'));
+
+    if (isHtml) {
+      return formattedText;
+    }
 
     return `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13.5px; line-height: 1.6; color: #334155;">
@@ -372,6 +375,7 @@ export const AuditLogs = () => {
       col: colName,
       dir: prev.col === colName && prev.dir === 'asc' ? 'desc' : 'asc'
     }));
+    setRecipientPage(1);
   };
 
   return (
@@ -646,7 +650,7 @@ export const AuditLogs = () => {
                       {/* Actions Buttons */}
                       <td className="audit-table-cell cell-actions">
                         <button
-                          onClick={() => setDetailLog(log)}
+                          onClick={() => handleOpenDetails(log)}
                           className="audit-icon-btn audit-icon-btn-view"
                           title="View Details & Recipients"
                         >
@@ -897,7 +901,10 @@ export const AuditLogs = () => {
                         <input
                           type="text"
                           value={recipientSearch}
-                          onChange={(e) => setRecipientSearch(e.target.value)}
+                          onChange={(e) => {
+                            setRecipientSearch(e.target.value);
+                            setRecipientPage(1);
+                          }}
                           placeholder="Search recipients..."
                           className="recipient-search-input"
                         />
@@ -908,7 +915,10 @@ export const AuditLogs = () => {
                         {['All', 'Sent', 'Failed', 'Skipped'].map(status => (
                           <button
                             key={status}
-                            onClick={() => setRecipientStatusFilter(status)}
+                            onClick={() => {
+                              setRecipientStatusFilter(status);
+                              setRecipientPage(1);
+                            }}
                             className={`recipient-toggle-btn ${
                               recipientStatusFilter === status ? 'active' : ''
                             }`}

@@ -1,5 +1,6 @@
-import React, { useState, useContext } from 'react';
-import { AppContext, API_BASE } from '../context/AppContext';
+import { useState, useContext } from 'react';
+import { AppContext } from '../context/AppContext';
+import { API_BASE, authFetch } from '../utils/api';
 import {
   Server,
   Eye,
@@ -118,9 +119,8 @@ export const Settings = () => {
     setTestResult(null);
 
     try {
-      const response = await fetch(`${API_BASE}/settings/verify`, {
+      const response = await authFetch(`${API_BASE}/settings/verify`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(smtp)
       });
       const data = await response.json();
@@ -264,7 +264,7 @@ export const Settings = () => {
               {/* Password */}
               <div className="space-y-1">
                 <label className="block text-[10px] font-bold text-slate-505 uppercase tracking-wider">{getPasswordLabel()}</label>
-                <div className="relative">
+                <div className="relative w-full">
                   <input
                     type={showPassword ? 'text' : 'password'}
                     name="password"
@@ -277,11 +277,30 @@ export const Settings = () => {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-650"
+                    style={{
+                      position: 'absolute',
+                      right: '12px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      zIndex: 10,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: 'none',
+                      border: 'none',
+                      padding: 0
+                    }}
+                    className="text-slate-400 hover:text-slate-650"
                   >
                     {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
                 </div>
+                {showPassword && smtp.password === '••••••••' && (
+                  <p className="text-[10px] text-slate-400 mt-1 lowercase">
+                    Note: Saved credentials are encrypted and hidden for security. Type a new password/API key to update.
+                  </p>
+                )}
               </div>
 
               {/* Encryption */}

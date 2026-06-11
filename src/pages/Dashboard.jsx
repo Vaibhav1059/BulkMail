@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import { useState, useContext } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 import {
@@ -12,7 +12,6 @@ import {
   TrendingUp,
   Plus,
   CheckCircle,
-  Activity,
   Edit2,
   X
 } from 'lucide-react';
@@ -38,8 +37,6 @@ export const Dashboard = () => {
   const totalSuccess = campaigns.reduce((acc, curr) => acc + curr.sentCount, 0);
   const totalFailed = campaigns.reduce((acc, curr) => acc + curr.failedCount, 0);
   const totalEmailsSent = totalSuccess + totalFailed;
-  const scheduledCampaigns = campaigns.filter(c => c.status === 'Scheduled').length;
-
   // Filter out soft-deleted logs and take the 5 most recent
   const activeLogs = auditLogs.filter(log => !log.deletedAt);
   const recentLogs = activeLogs.slice(0, 5);
@@ -170,7 +167,7 @@ export const Dashboard = () => {
                     <th className="pb-3 pr-2">Campaign</th>
                     <th className="pb-3 px-2">Recipients</th>
                     <th className="pb-3 px-2">Status</th>
-                    <th className="pb-3 px-2">Delivery Progress</th>
+                    <th className="pb-3 px-2 hidden md:table-cell">Delivery Progress</th>
                     <th className="pb-3 pl-2 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -206,7 +203,7 @@ export const Dashboard = () => {
                               {camp.status}
                             </span>
                           </td>
-                          <td className="py-3 px-2 w-[160px]">
+                          <td className="py-3 px-2 w-[160px] hidden md:table-cell">
                             <div className="flex items-center gap-2">
                                 <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden border border-slate-200">
                                   <div

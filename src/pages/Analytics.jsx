@@ -1,7 +1,4 @@
-import React, { useContext } from 'react';
-import { AppContext } from '../context/AppContext';
 import {
-  TrendingUp,
   Percent,
   CheckCircle,
   Eye,
@@ -25,7 +22,6 @@ import {
 import { analyticsData } from '../utils/mockData';
 
 export const Analytics = () => {
-  const { campaigns } = useContext(AppContext);
 
   const { summary, weeklyPerformance, bounceReasons, deviceDistribution } = analyticsData;
 

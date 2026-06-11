@@ -1,12 +1,11 @@
-import React, { createContext, useState, useEffect } from 'react';
+/* eslint-disable react-refresh/only-export-components */
+import { createContext, useState, useEffect } from 'react';
+import { API_BASE, authFetch } from '../utils/api';
 
 export const AppContext = createContext();
 
-export const API_BASE = 'http://localhost:5000/api';
-
 export const AppProvider = ({ children }) => {
   const [users, setUsers] = useState([]);
-
   const [campaigns, setCampaigns] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
@@ -14,6 +13,34 @@ export const AppProvider = ({ children }) => {
     smtp: { host: '', port: '', username: '', password: '', encryption: '', senderEmail: '', senderName: '' },
     limits: { emailsPerHour: 5000, emailsPerDay: 50000, delaySeconds: 0.5 },
     timeouts: { connectionTimeout: 10, retryAttempts: 3 }
+  });
+
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const savedUser = localStorage.getItem('aerosend_user');
+      if (!savedUser) return null;
+      const parsed = JSON.parse(savedUser);
+      // Purge stale sessions from old dummy users (not Vaibhav Soni)
+      if (parsed && parsed.email && parsed.email !== 'vaibhavsoni1059@gmail.com') {
+        localStorage.removeItem('aerosend_token');
+        localStorage.removeItem('aerosend_user');
+        return null;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
+  });
+  const [token, setToken] = useState(() => {
+    const savedUser = localStorage.getItem('aerosend_user');
+    // Only restore token if the saved user is Vaibhav Soni
+    try {
+      const parsed = savedUser ? JSON.parse(savedUser) : null;
+      if (parsed && parsed.email === 'vaibhavsoni1059@gmail.com') {
+        return localStorage.getItem('aerosend_token') || null;
+      }
+    } catch { /* empty */ }
+    return null;
   });
 
   const [csvData, setCsvData] = useState({
@@ -53,10 +80,11 @@ export const AppProvider = ({ children }) => {
 
   // Load initial MySQL data from API
   const refreshData = async () => {
+    if (!localStorage.getItem('aerosend_token')) return;
     try {
       // 1. Fetch campaigns
       try {
-        const resCamp = await fetch(`${API_BASE}/campaigns`);
+        const resCamp = await authFetch(`${API_BASE}/campaigns`);
         if (resCamp.ok) {
           const dataCamp = await resCamp.json();
           setCampaigns(Array.isArray(dataCamp) ? dataCamp : []);
@@ -70,7 +98,7 @@ export const AppProvider = ({ children }) => {
 
       // 2. Fetch logs
       try {
-        const resLogs = await fetch(`${API_BASE}/logs`);
+        const resLogs = await authFetch(`${API_BASE}/logs`);
         if (resLogs.ok) {
           const dataLogs = await resLogs.json();
           setAuditLogs(Array.isArray(dataLogs) ? dataLogs : []);
@@ -84,7 +112,7 @@ export const AppProvider = ({ children }) => {
 
       // 3. Fetch users
       try {
-        const resUsers = await fetch(`${API_BASE}/users`);
+        const resUsers = await authFetch(`${API_BASE}/users`);
         if (resUsers.ok) {
           const dataUsers = await resUsers.json();
           setUsers(Array.isArray(dataUsers) ? dataUsers : []);
@@ -98,7 +126,7 @@ export const AppProvider = ({ children }) => {
 
       // 4. Fetch settings
       try {
-        const resSettings = await fetch(`${API_BASE}/settings`);
+        const resSettings = await authFetch(`${API_BASE}/settings`);
         if (resSettings.ok) {
           const dataSettings = await resSettings.json();
           if (dataSettings && !dataSettings.error) {
@@ -130,7 +158,7 @@ export const AppProvider = ({ children }) => {
 
       // 5. Fetch templates
       try {
-        const resTemplates = await fetch(`${API_BASE}/templates`);
+        const resTemplates = await authFetch(`${API_BASE}/templates`);
         if (resTemplates.ok) {
           const dataTemplates = await resTemplates.json();
           setTemplates(Array.isArray(dataTemplates) ? dataTemplates : []);
@@ -147,22 +175,29 @@ export const AppProvider = ({ children }) => {
   };
 
   useEffect(() => {
-    refreshData();
-  }, []);
+    if (token) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      refreshData();
+    }
+  }, [token]);
 
   // Poll sending status from Node backend
   useEffect(() => {
+    if (!token) return;
     let timer;
     const checkStatus = async () => {
       try {
-        const res = await fetch(`${API_BASE}/sending/active`);
+        const res = await authFetch(`${API_BASE}/sending/active`);
+        if (!res.ok) return;
         const active = await res.json();
         setSendingState(active);
         
         if (active.status === 'sending' || active.status === 'completed') {
-          const resCamp = await fetch(`${API_BASE}/campaigns`);
-          const dataCamp = await resCamp.json();
-          setCampaigns(dataCamp);
+          const resCamp = await authFetch(`${API_BASE}/campaigns`);
+          if (resCamp.ok) {
+            const dataCamp = await resCamp.json();
+            setCampaigns(dataCamp);
+          }
         }
 
         if (active.status === 'sending' || active.status === 'paused') {
@@ -178,19 +213,41 @@ export const AppProvider = ({ children }) => {
     }
 
     return () => clearTimeout(timer);
-  }, [sendingState.status]);
+  }, [sendingState.status, token]);
 
-  // Log action
-  const logEvent = async (action, status = 'Success') => {
+  const logEvent = async (_action, _status = 'Success') => {
     await refreshData();
   };
 
-  // Add User (MySQL API)
+  const login = async (email) => {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Login failed');
+    }
+    const data = await res.json();
+    localStorage.setItem('aerosend_token', data.token);
+    localStorage.setItem('aerosend_user', JSON.stringify(data.user));
+    setCurrentUser(data.user);
+    setToken(data.token);
+    return data.user;
+  };
+
+  const logout = () => {
+    localStorage.removeItem('aerosend_token');
+    localStorage.removeItem('aerosend_user');
+    setCurrentUser(null);
+    setToken(null);
+  };
+
   const addUser = async (name, email, role) => {
     try {
-      await fetch(`${API_BASE}/users`, {
+      await authFetch(`${API_BASE}/users`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, role })
       });
       await refreshData();
@@ -203,9 +260,8 @@ export const AppProvider = ({ children }) => {
     const userToUpdate = users.find(u => u.id === userId);
     if (!userToUpdate) return;
     try {
-      await fetch(`${API_BASE}/users/${userId}`, {
+      await authFetch(`${API_BASE}/users/${userId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: userToUpdate.name,
           email: userToUpdate.email,
@@ -227,9 +283,8 @@ export const AppProvider = ({ children }) => {
       role: updatedDetails.role !== undefined ? updatedDetails.role : userToUpdate.role
     };
     try {
-      await fetch(`${API_BASE}/users/${userId}`, {
+      await authFetch(`${API_BASE}/users/${userId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(merged)
       });
       await refreshData();
@@ -243,9 +298,8 @@ export const AppProvider = ({ children }) => {
     if (!userToUpdate) return;
     const newStatus = userToUpdate.status === 'Active' ? 'Inactive' : 'Active';
     try {
-      await fetch(`${API_BASE}/users/${userId}/status`, {
+      await authFetch(`${API_BASE}/users/${userId}/status`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus })
       });
       await refreshData();
@@ -256,7 +310,7 @@ export const AppProvider = ({ children }) => {
 
   const deleteUser = async (userId) => {
     try {
-      await fetch(`${API_BASE}/users/${userId}`, {
+      await authFetch(`${API_BASE}/users/${userId}`, {
         method: 'DELETE'
       });
       await refreshData();
@@ -265,9 +319,8 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  // Save campaign to MySQL via API
   const saveCampaign = async (campaignData) => {
-    const creator = 'Administrator';
+    const creator = currentUser?.name || 'Administrator';
     const id = 'c' + Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
     
     const payload = {
@@ -278,9 +331,8 @@ export const AppProvider = ({ children }) => {
     };
 
     try {
-      await fetch(`${API_BASE}/campaigns`, {
+      await authFetch(`${API_BASE}/campaigns`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
       await refreshData();
@@ -291,10 +343,9 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  // Delete campaign from MySQL
   const deleteCampaign = async (campaignId) => {
     try {
-      await fetch(`${API_BASE}/campaigns/${campaignId}`, { method: 'DELETE' });
+      await authFetch(`${API_BASE}/campaigns/${campaignId}`, { method: 'DELETE' });
       await refreshData();
     } catch (err) {
       console.error(err);
@@ -305,9 +356,8 @@ export const AppProvider = ({ children }) => {
     const id = templateData.id || 't' + Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
     const payload = { id, ...templateData };
     try {
-      await fetch(`${API_BASE}/templates`, {
+      await authFetch(`${API_BASE}/templates`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
       await refreshData();
@@ -320,9 +370,8 @@ export const AppProvider = ({ children }) => {
 
   const updateTemplate = async (templateId, templateData) => {
     try {
-      await fetch(`${API_BASE}/templates/${templateId}`, {
+      await authFetch(`${API_BASE}/templates/${templateId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(templateData)
       });
       await refreshData();
@@ -333,7 +382,7 @@ export const AppProvider = ({ children }) => {
 
   const deleteTemplate = async (templateId) => {
     try {
-      await fetch(`${API_BASE}/templates/${templateId}`, { method: 'DELETE' });
+      await authFetch(`${API_BASE}/templates/${templateId}`, { method: 'DELETE' });
       await refreshData();
     } catch (err) {
       console.error(err);
@@ -342,7 +391,7 @@ export const AppProvider = ({ children }) => {
 
   const deleteAuditLog = async (id, permanent = false) => {
     try {
-      await fetch(`${API_BASE}/logs/${id}?permanent=${permanent}`, { method: 'DELETE' });
+      await authFetch(`${API_BASE}/logs/${id}?permanent=${permanent}`, { method: 'DELETE' });
       await refreshData();
     } catch (err) {
       console.error('Failed to delete audit log:', err);
@@ -351,9 +400,8 @@ export const AppProvider = ({ children }) => {
 
   const deleteAuditLogsBulk = async (ids, permanent = false) => {
     try {
-      await fetch(`${API_BASE}/logs/delete-bulk`, {
+      await authFetch(`${API_BASE}/logs/delete-bulk`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids, permanent })
       });
       await refreshData();
@@ -364,9 +412,8 @@ export const AppProvider = ({ children }) => {
 
   const restoreAuditLogsBulk = async (ids) => {
     try {
-      await fetch(`${API_BASE}/logs/restore-bulk`, {
+      await authFetch(`${API_BASE}/logs/restore-bulk`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids })
       });
       await refreshData();
@@ -377,7 +424,7 @@ export const AppProvider = ({ children }) => {
 
   const clearCampaignHistory = async (campaignId) => {
     try {
-      await fetch(`${API_BASE}/campaigns/${campaignId}/history`, { method: 'DELETE' });
+      await authFetch(`${API_BASE}/campaigns/${campaignId}/history`, { method: 'DELETE' });
       await refreshData();
     } catch (err) {
       console.error('Failed to clear campaign history:', err);
@@ -386,7 +433,7 @@ export const AppProvider = ({ children }) => {
 
   const cancelCampaignSchedule = async (campaignId) => {
     try {
-      const res = await fetch(`${API_BASE}/campaigns/${campaignId}/cancel-schedule`, {
+      const res = await authFetch(`${API_BASE}/campaigns/${campaignId}/cancel-schedule`, {
         method: 'POST'
       });
       if (!res.ok) {
@@ -400,9 +447,8 @@ export const AppProvider = ({ children }) => {
 
   const updateCampaignSchedule = async (campaignId, scheduleDate) => {
     try {
-      const res = await fetch(`${API_BASE}/campaigns/${campaignId}/update-schedule`, {
+      const res = await authFetch(`${API_BASE}/campaigns/${campaignId}/update-schedule`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scheduleDate: new Date(scheduleDate).toISOString() })
       });
       if (!res.ok) {
@@ -415,7 +461,6 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  // Save Settings to MySQL
   const updateSettings = async (newSettings) => {
     const payload = {
       host: newSettings.smtp.host,
@@ -433,9 +478,8 @@ export const AppProvider = ({ children }) => {
     };
 
     try {
-      await fetch(`${API_BASE}/settings`, {
+      await authFetch(`${API_BASE}/settings`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
       await refreshData();
@@ -446,9 +490,8 @@ export const AppProvider = ({ children }) => {
 
   const sendTestEmail = async (testEmail, subject, body) => {
     try {
-      const res = await fetch(`${API_BASE}/campaigns/send-test`, {
+      const res = await authFetch(`${API_BASE}/campaigns/send-test`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ testEmail, subject, body })
       });
       const data = await res.json();
@@ -463,7 +506,6 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  // Launch Queue on Node.js Server
   const launchCampaign = async (campaignId, campaignName, subject, body, recipients, range, concurrency, delay) => {
     const payload = {
       campaignId,
@@ -478,9 +520,8 @@ export const AppProvider = ({ children }) => {
     };
 
     try {
-      await fetch(`${API_BASE}/sending/launch`, {
+      await authFetch(`${API_BASE}/sending/launch`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
       
@@ -496,28 +537,28 @@ export const AppProvider = ({ children }) => {
   };
 
   const pauseSending = async () => {
-    await fetch(`${API_BASE}/sending/pause`, { method: 'POST' });
+    await authFetch(`${API_BASE}/sending/pause`, { method: 'POST' });
     setSendingState(prev => ({ ...prev, status: 'paused' }));
   };
 
   const resumeSending = async () => {
-    await fetch(`${API_BASE}/sending/resume`, { method: 'POST' });
+    await authFetch(`${API_BASE}/sending/resume`, { method: 'POST' });
     setSendingState(prev => ({ ...prev, status: 'sending' }));
   };
 
   const stopSending = async () => {
-    await fetch(`${API_BASE}/sending/stop`, { method: 'POST' });
+    await authFetch(`${API_BASE}/sending/stop`, { method: 'POST' });
     setSendingState(prev => ({ ...prev, status: 'stopped', remaining: 0 }));
     await refreshData();
   };
 
   const retryFailedEmails = async () => {
-    await fetch(`${API_BASE}/sending/retry`, { method: 'POST' });
+    await authFetch(`${API_BASE}/sending/retry`, { method: 'POST' });
     setSendingState(prev => ({ ...prev, status: 'sending' }));
   };
 
   const dismissAdminSummary = async () => {
-    await fetch(`${API_BASE}/sending/dismiss-summary`, { method: 'POST' });
+    await authFetch(`${API_BASE}/sending/dismiss-summary`, { method: 'POST' });
     setSendingState(prev => ({ ...prev, showAdminSummary: false }));
   };
 
@@ -557,7 +598,12 @@ export const AppProvider = ({ children }) => {
       restoreAuditLogsBulk,
       clearCampaignHistory,
       cancelCampaignSchedule,
-      updateCampaignSchedule
+      updateCampaignSchedule,
+      currentUser,
+      token,
+      login,
+      logout,
+      authFetch
     }}>
       {children}
     </AppContext.Provider>

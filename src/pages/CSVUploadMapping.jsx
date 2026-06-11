@@ -1,7 +1,8 @@
-import React, { useState, useContext, useEffect } from 'react';
+import { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
-import { parseCSV, generateValidationReport } from '../utils/csvParser';
+import { parseCSV, generateValidationReport, runMXValidation } from '../utils/csvParser';
+import { API_BASE } from '../utils/api';
 import * as XLSX from 'xlsx';
 import {
   UploadCloud,
@@ -10,16 +11,15 @@ import {
   Users,
   CheckCircle,
   Copy,
-  ArrowRight,
-  Sparkles,
-  Info
+  Info,
+  ShieldCheck,
+  Loader
 } from 'lucide-react';
 
 export const CSVUploadMapping = () => {
   const { csvData, setCsvData, logEvent } = useContext(AppContext);
   const navigate = useNavigate();
 
-  const [rawText, setRawText] = useState('');
   const [dragActive, setDragActive] = useState(false);
   const [selectedHeaders, setSelectedHeaders] = useState({
     email: csvData.mappedFields.email || '',
@@ -27,12 +27,29 @@ export const CSVUploadMapping = () => {
     company: csvData.mappedFields.company || ''
   });
 
-  const [validationReport, setValidationReport] = useState(csvData.validationReport || null);
+  const [mxLoading, setMxLoading] = useState(false);
+  const [mxReport, setMxReport] = useState(null); // MX-upgraded report
+  const [mxDone, setMxDone] = useState(false);
 
+  const validationReport = (csvData.rawRows.length > 0 && selectedHeaders.email)
+    ? generateValidationReport(csvData.rawRows, selectedHeaders.email)
+    : null;
 
+  // Use MX-upgraded report if available, otherwise the base syntax report
+  const activeReport = mxReport || validationReport;
+
+  const handleRunMX = async () => {
+    if (!validationReport) return;
+    setMxLoading(true);
+    setMxDone(false);
+    const token = localStorage.getItem('aerosend_token');
+    const upgraded = await runMXValidation(validationReport, API_BASE, token);
+    setMxReport(upgraded);
+    setMxLoading(false);
+    setMxDone(true);
+  };
 
   const handleTextParse = (text, name = 'Sample Sandbox Dataset') => {
-    setRawText(text);
     const parsed = parseCSV(text);
 
     if (parsed.error) {
@@ -148,20 +165,14 @@ export const CSVUploadMapping = () => {
     setSelectedHeaders(prev => ({ ...prev, [field]: val }));
   };
 
-  // Run validation report when rows or mapping changes (local state only to prevent context render loops)
-  useEffect(() => {
-    if (csvData.rawRows.length > 0 && selectedHeaders.email) {
-      const report = generateValidationReport(csvData.rawRows, selectedHeaders.email);
-      setValidationReport(report);
-    }
-  }, [selectedHeaders, csvData.rawRows]);
+  // Run validation report when rows or mapping changes
 
   const handleProceed = () => {
     if (!selectedHeaders.email) {
       alert('You must map the Email address field to proceed.');
       return;
     }
-    if (!validationReport || validationReport.summary.valid === 0) {
+    if (!activeReport || activeReport.summary.valid === 0) {
       alert('Your dataset has no valid email recipients to send to.');
       return;
     }
@@ -170,10 +181,9 @@ export const CSVUploadMapping = () => {
     setCsvData(prev => ({
       ...prev,
       mappedFields: selectedHeaders,
-      validationReport: validationReport
+      validationReport: activeReport
     }));
 
-    // In current routing flow, we can go to /preview page
     navigate('/preview');
   };
 
@@ -244,10 +254,65 @@ export const CSVUploadMapping = () => {
 
           {/* Validation Rows Detail */}
           {validationReport && (
-            <div className="bg-white border border-slate-200/85 rounded-xl p-5 shadow-sm">
-              <h3 className="text-xs font-semibold text-slate-555 uppercase tracking-wider mb-3">
-                Recipient Validation Analysis
-              </h3>
+            <div className="bg-white border border-slate-200/85 rounded-xl p-5 shadow-sm space-y-3">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                <h3 className="text-xs font-semibold text-slate-555 uppercase tracking-wider">
+                  Recipient Validation Analysis
+                </h3>
+
+                {/* MX Validation Button */}
+                {!mxDone ? (
+                  <button
+                    onClick={handleRunMX}
+                    disabled={mxLoading}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      fontSize: '11px', fontWeight: 700,
+                      padding: '5px 12px', borderRadius: '8px',
+                      border: '1px solid hsl(250 100% 88%)',
+                      background: mxLoading ? 'hsl(250 100% 97%)' : 'hsl(250 100% 96%)',
+                      color: 'var(--indigo-600)',
+                      cursor: mxLoading ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.2s ease',
+                      opacity: mxLoading ? 0.7 : 1
+                    }}
+                  >
+                    {mxLoading
+                      ? <Loader size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                      : <ShieldCheck size={13} />
+                    }
+                    {mxLoading ? 'Checking DNS MX Records…' : 'Run Deep MX Validation'}
+                  </button>
+                ) : (
+                  <span style={{
+                    display: 'flex', alignItems: 'center', gap: '5px',
+                    fontSize: '11px', fontWeight: 600,
+                    color: 'var(--emerald-600)',
+                    background: 'hsl(160 60% 96%)',
+                    border: '1px solid hsl(160 60% 85%)',
+                    padding: '4px 10px', borderRadius: '8px'
+                  }}>
+                    <ShieldCheck size={13} /> MX Check Complete
+                  </span>
+                )}
+              </div>
+
+              {/* MX result summary banner */}
+              {mxDone && (
+                <div style={{
+                  background: 'hsl(250 100% 97%)',
+                  border: '1px solid hsl(250 100% 88%)',
+                  borderRadius: '8px',
+                  padding: '8px 12px',
+                  fontSize: '11px',
+                  color: 'var(--indigo-600)',
+                  fontWeight: 500
+                }}>
+                  🛡️ DNS MX validation complete — <strong>{activeReport.summary.valid}</strong> valid emails,{' '}
+                  <strong>{activeReport.summary.invalid}</strong> invalid (syntax + domain),{' '}
+                  <strong>{activeReport.summary.duplicates}</strong> duplicates removed.
+                </div>
+              )}
 
               <div className="max-h-60 overflow-y-auto custom-scrollbar border border-slate-200 rounded-lg">
                 <table className="w-full text-left border-collapse text-xs">
@@ -260,7 +325,7 @@ export const CSVUploadMapping = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
-                    {validationReport.rows.map((row) => (
+                    {activeReport.rows.map((row) => (
                       <tr key={row.index} className="hover:bg-slate-50 transition-colors">
                         <td className="py-2.5 px-3 text-slate-400 font-mono">#{row.index}</td>
                         <td className="py-2.5 px-3 font-semibold text-slate-750">{row.email || '<blank>'}</td>
@@ -283,6 +348,7 @@ export const CSVUploadMapping = () => {
             </div>
           )}
         </div>
+
 
         {/* Header Mapping Setup */}
         <div className="space-y-6">

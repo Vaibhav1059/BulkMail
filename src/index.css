@@ -167,6 +167,12 @@ a {
   background: rgba(99, 102, 241, 0.4);
 }
 
+/* Spin animation for loading spinners */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* 3. GLOBAL STYLES & ACCESSIBILITY */
 :focus-visible {
   outline: 2px solid var(--indigo-500);
@@ -657,6 +663,14 @@ p {
   margin-right: 4px;
 }
 
+.p-1 {
+  padding: 4px;
+}
+
+.p-1\.5 {
+  padding: 6px;
+}
+
 .p-2 {
   padding: 8px;
 }
@@ -745,6 +759,26 @@ p {
   padding-bottom: 12px;
 }
 
+.py-4 {
+  padding-top: 16px;
+  padding-bottom: 16px;
+}
+
+.py-5 {
+  padding-top: 20px;
+  padding-bottom: 20px;
+}
+
+.py-6 {
+  padding-top: 24px;
+  padding-bottom: 24px;
+}
+
+.py-8 {
+  padding-top: 32px;
+  padding-bottom: 32px;
+}
+
 .pb-2 {
   padding-bottom: 8px;
 }
@@ -809,7 +843,7 @@ aside nav a:hover {
 }
 
 aside nav a.active,
-aside nav a[class*="bg-indigo-50"] {
+aside nav a[class~="bg-indigo-50"] {
   background-color: var(--indigo-50);
   color: var(--indigo-700);
   font-weight: 600;
@@ -1024,8 +1058,8 @@ button,
 }
 
 .btn-primary,
-button[class*="bg-indigo-600"],
-button[class*="bg-gradient-to-r"] {
+button[class~="bg-indigo-600"],
+button[class~="bg-gradient-to-r"] {
   background: var(--indigo-600);
   color: #ffffff;
   padding: 10px 16px;
@@ -1035,15 +1069,14 @@ button[class*="bg-gradient-to-r"] {
 }
 
 .btn-primary:hover,
-button[class*="bg-indigo-600"]:hover,
-button[class*="bg-gradient-to-r"]:hover {
+button[class~="bg-indigo-600"]:hover,
+button[class~="bg-gradient-to-r"]:hover {
   background: var(--indigo-700);
   transform: translateY(-0.5px);
   box-shadow: var(--shadow-md);
 }
 
-.btn-secondary,
-button[class*="bg-white"][class*="border-slate-200"] {
+.btn-secondary {
   background: var(--bg-card);
   color: var(--slate-700);
   border: 1px solid var(--border-color-default);
@@ -1051,15 +1084,14 @@ button[class*="bg-white"][class*="border-slate-200"] {
   box-shadow: var(--shadow-sm);
 }
 
-.btn-secondary:hover,
-button[class*="bg-white"][class*="border-slate-200"]:hover {
+.btn-secondary:hover {
   background: var(--slate-50);
   color: var(--slate-900);
   border-color: var(--slate-300);
 }
 
 .btn-danger,
-button[class*="bg-rose-600"] {
+button[class~="bg-rose-600"] {
   background: var(--rose-600);
   color: #ffffff;
   padding: 10px 16px;
@@ -1067,12 +1099,12 @@ button[class*="bg-rose-600"] {
 }
 
 .btn-danger:hover,
-button[class*="bg-rose-600"]:hover {
+button[class~="bg-rose-600"]:hover {
   background: var(--rose-700);
 }
 
 .btn-warning,
-button[class*="bg-amber-500"] {
+button[class~="bg-amber-500"] {
   background: var(--amber-500);
   color: #ffffff;
   padding: 10px 16px;
@@ -1080,12 +1112,12 @@ button[class*="bg-amber-500"] {
 }
 
 .btn-warning:hover,
-button[class*="bg-amber-500"]:hover {
+button[class~="bg-amber-500"]:hover {
   background: var(--amber-600);
 }
 
 .btn-success,
-button[class*="bg-emerald-600"] {
+button[class~="bg-emerald-600"] {
   background: var(--emerald-600);
   color: #ffffff;
   padding: 10px 16px;
@@ -1093,7 +1125,7 @@ button[class*="bg-emerald-600"] {
 }
 
 .btn-success:hover,
-button[class*="bg-emerald-600"]:hover {
+button[class~="bg-emerald-600"]:hover {
   background: var(--emerald-700);
 }
 
@@ -1541,16 +1573,16 @@ tr:hover td {
 
 /* 16. FOOTER & ROLE SYSTEM */
 /* Interactive role buttons */
-button[class*="bg-indigo-600"][class*="text-white"] {
+button[class~="bg-indigo-600"][class~="text-white"] {
   background-color: var(--indigo-600);
   color: #ffffff;
 }
 
-button[class*="text-slate-500"] {
+button[class~="text-slate-500"] {
   color: var(--slate-500);
 }
 
-button[class*="text-slate-500"]:hover {
+button[class~="text-slate-500"]:hover {
   color: var(--slate-800);
   background-color: hsla(var(--slate-200-hsl), 0.5);
 }
@@ -1587,6 +1619,17 @@ button[class*="text-slate-500"]:hover {
   }
 }
 
+/* Custom utility classes */
+.hidden {
+  display: none;
+}
+.max-w-full {
+  max-width: 100%;
+}
+.max-h-full {
+  max-height: 100%;
+}
+
 /* 18. RESPONSIVE MEDIA QUERIES */
 @media (min-width: 640px) {
   .sm\:flex-row {
@@ -1603,6 +1646,18 @@ button[class*="text-slate-500"]:hover {
 
   .sm\:grid-cols-2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sm\:hidden {
+    display: none !important;
+  }
+
+  .sm\:block {
+    display: block !important;
+  }
+
+  .sm\:flex {
+    display: flex !important;
   }
 }
 
