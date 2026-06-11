@@ -1677,6 +1677,14 @@ button[class~="text-slate-500"]:hover {
   .md\:grid-cols-2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .md\:hidden {
+    display: none !important;
+  }
+
+  .md\:table-cell {
+    display: table-cell !important;
+  }
 }
 
 @media (max-width: 767px) {
@@ -1689,6 +1697,10 @@ button[class~="text-slate-500"]:hover {
   }
 
   .md\:inline {
+    display: none;
+  }
+
+  .md\:table-cell {
     display: none;
   }
 }
