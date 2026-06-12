@@ -3,6 +3,15 @@ import cors from 'cors';
 import multer from 'multer';
 import nodemailer from 'nodemailer';
 import fs from 'fs';
+import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
+import helmet from 'helmet';
+import compression from 'compression';
+import rateLimit from 'express-rate-limit';
+
+function hashPassword(password) {
+  return bcrypt.hashSync(password, 10);
+}
 import path from 'path';
 import dotenv from 'dotenv';
 import pool from './db.js';
@@ -14,7 +23,53 @@ dotenv.config();
 const app = express();
 const port = 5000;
 
-const JWT_SECRET = process.env.JWT_SECRET || 'aerosend-secret-token-key-2026';
+// Security and Performance Middlewares
+app.set('trust proxy', 1);
+app.use(helmet({
+  contentSecurityPolicy: false // Allow dynamic scripts/Vite during local development/production integration
+}));
+app.use(compression());
+
+// Logger Middleware
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - IP: ${req.ip}`);
+  next();
+});
+
+// Configure Rate Limiters
+const globalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 200,
+  message: { error: 'Too many requests. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+const authLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  message: { error: 'Too many login attempts. Please try again after a minute.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+const testEmailLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  message: { error: 'Too many test email requests. Please try again after a minute.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+app.use('/api/', globalLimiter);
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
+app.use('/api/campaigns/send-test', testEmailLimiter);
+
+const JWT_SECRET = process.env.JWT_SECRET || (
+  console.warn('⚠️  JWT_SECRET environment variable is not set. Generating a temporary random key for this session.'),
+  crypto.randomBytes(32).toString('hex')
+);
 
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173',
@@ -35,10 +90,24 @@ function authenticateToken(req, res, next) {
   });
 }
 
+function requireRole(role) {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Unauthorized. Authenticated session required.' });
+    }
+    if (req.user.role !== role) {
+      return res.status(403).json({ error: 'Access Forbidden. You do not have permissions for this action.' });
+    }
+    next();
+  };
+}
+
 // Global API Interceptor for authentication
 app.use((req, res, next) => {
   const publicPaths = [
+    '/health',
     '/api/auth/login',
+    '/api/auth/register',
     '/api/tracker/click',
     '/api/unsubscribe/confirm'
   ];
@@ -61,6 +130,26 @@ if (!fs.existsSync(sentEmailsDir)) {
 }
 
 const upload = multer({ limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB limit
+
+// Health Check Endpoint
+app.get('/health', async (req, res) => {
+  try {
+    // Check DB connectivity
+    await pool.query('SELECT 1;');
+    res.json({
+      status: 'UP',
+      timestamp: new Date().toISOString(),
+      database: 'connected'
+    });
+  } catch (err) {
+    res.status(500).json({
+      status: 'DOWN',
+      timestamp: new Date().toISOString(),
+      database: 'disconnected',
+      error: err.message
+    });
+  }
+});
 
 // Global state for background dispatch queue
 let activeSendingState = {
@@ -245,7 +334,7 @@ app.post('/api/campaigns/:id/update-schedule', async (req, res) => {
 });
 
 // 4. Fetch SMTP Settings (with masked password for security)
-app.get('/api/settings', async (req, res) => {
+app.get('/api/settings', requireRole('Admin'), async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM settings WHERE id = 1;');
     const config = rows[0] || {};
@@ -259,7 +348,7 @@ app.get('/api/settings', async (req, res) => {
 });
 
 // 5. Update SMTP Settings
-app.post('/api/settings', async (req, res) => {
+app.post('/api/settings', requireRole('Admin'), async (req, res) => {
   const { host, port, username, password, encryption, senderEmail, senderName, emailsPerHour, emailsPerDay, delaySeconds, connectionTimeout, retryAttempts } = req.body;
   try {
     if (password === '••••••••') {
@@ -312,7 +401,7 @@ const avatarUrls = [
 ];
 
 // Fetch all users
-app.get('/api/users', async (req, res) => {
+app.get('/api/users', requireRole('Admin'), async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM users;');
     res.json(rows);
@@ -322,7 +411,7 @@ app.get('/api/users', async (req, res) => {
 });
 
 // Create new user
-app.post('/api/users', async (req, res) => {
+app.post('/api/users', requireRole('Admin'), async (req, res) => {
   const { name, email, role } = req.body;
   const id = 'u' + Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
   const avatar = avatarUrls[Math.floor(Math.random() * avatarUrls.length)];
@@ -339,7 +428,7 @@ app.post('/api/users', async (req, res) => {
 });
 
 // Update user details
-app.put('/api/users/:id', async (req, res) => {
+app.put('/api/users/:id', requireRole('Admin'), async (req, res) => {
   const { id } = req.params;
   const { name, email, role } = req.body;
   try {
@@ -355,7 +444,7 @@ app.put('/api/users/:id', async (req, res) => {
 });
 
 // Toggle user status
-app.patch('/api/users/:id/status', async (req, res) => {
+app.patch('/api/users/:id/status', requireRole('Admin'), async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
   try {
@@ -371,7 +460,7 @@ app.patch('/api/users/:id/status', async (req, res) => {
 });
 
 // Delete user
-app.delete('/api/users/:id', async (req, res) => {
+app.delete('/api/users/:id', requireRole('Admin'), async (req, res) => {
   const { id } = req.params;
   try {
     const [user] = await pool.query('SELECT name FROM users WHERE id = ?;', [id]);
@@ -567,6 +656,15 @@ app.post('/api/campaigns/send-test', async (req, res) => {
 app.post('/api/upload-csv', upload.single('file'), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded.' });
+  }
+
+  // Validate CSV extension and MIME type to block malicious uploads
+  const allowedExtensions = ['.csv'];
+  const allowedMimeTypes = ['text/csv', 'application/vnd.ms-excel', 'application/csv', 'text/x-csv', 'application/vnd.msexcel'];
+  const fileExt = path.extname(req.file.originalname).toLowerCase();
+  
+  if (!allowedExtensions.includes(fileExt) && !allowedMimeTypes.includes(req.file.mimetype)) {
+    return res.status(400).json({ error: 'Invalid file format. Only CSV files are allowed.' });
   }
 
   const csvText = req.file.buffer.toString('utf8');
@@ -780,30 +878,40 @@ async function processQueueStep() {
     // 2. Nodemailer Real SMTP Attempt
     const isMock = smtpSettings.host.includes('mock') || smtpSettings.password.includes('mock');
     if (!isMock) {
-      try {
-        const transporter = nodemailer.createTransport({
-          host: smtpSettings.host,
-          port: parseInt(smtpSettings.port),
-          secure: smtpSettings.encryption === 'SSL',
-          auth: {
-            user: smtpSettings.username,
-            pass: smtpSettings.password
-          },
-          tls: {
-            rejectUnauthorized: false
-          }
-        });
+      const maxRetries = parseInt(smtpSettings.retryAttempts) || 3;
+      let attempt = 0;
+      success = false;
 
-        await transporter.sendMail({
-          from: `"${smtpSettings.senderName}" <${smtpSettings.senderEmail}>`,
-          to: emailAddress,
-          subject: compiledSubject,
-          html: compiledHtml
-        });
-        success = true;
-      } catch (err) {
-        success = false;
-        errorMsg = err.message;
+      while (attempt < maxRetries && !success) {
+        try {
+          const transporter = nodemailer.createTransport({
+            host: smtpSettings.host,
+            port: parseInt(smtpSettings.port),
+            secure: smtpSettings.encryption === 'SSL',
+            auth: {
+              user: smtpSettings.username,
+              pass: smtpSettings.password
+            },
+            tls: {
+              rejectUnauthorized: false
+            }
+          });
+
+          await transporter.sendMail({
+            from: `"${smtpSettings.senderName}" <${smtpSettings.senderEmail}>`,
+            to: emailAddress,
+            subject: compiledSubject,
+            html: compiledHtml
+          });
+          success = true;
+        } catch (err) {
+          attempt++;
+          errorMsg = err.message;
+          if (attempt < maxRetries) {
+            console.warn(`[Queue Retry] Temporary failure sending to ${emailAddress} (Attempt ${attempt}/${maxRetries}): ${errorMsg}. Retrying in 1s...`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
       }
     } else {
       // Mock Success/Failure
@@ -1038,6 +1146,10 @@ async function resumeInterruptedCampaigns() {
 app.post('/api/sending/launch', async (req, res) => {
   const { campaignId, campaignName, subject, body, recipients, range, concurrency, delay, smtpUsed } = req.body;
   
+  if (activeSendingState.status === 'sending') {
+    return res.status(400).json({ error: 'Another campaign is currently sending. Please pause or stop the active campaign first.' });
+  }
+
   if (sendingTimer) {
     clearTimeout(sendingTimer);
   }
@@ -1313,15 +1425,24 @@ app.delete('/api/campaigns/:id/history', async (req, res) => {
 
 // Login Endpoint
 app.post('/api/auth/login', async (req, res) => {
-  const { email } = req.body;
+  const { email, password } = req.body;
   try {
     const [rows] = await pool.query('SELECT * FROM users WHERE email = ?;', [email]);
     if (rows.length === 0) {
       return res.status(401).json({ error: 'Invalid user email. Access Denied.' });
     }
     const user = rows[0];
+
+    // Verify password
+    if (!bcrypt.compareSync(password || '', user.password)) {
+      return res.status(401).json({ error: 'Incorrect password. Access Denied.' });
+    }
+
+    if (user.status === 'Pending') {
+      return res.status(403).json({ error: 'Your registration is pending approval by an administrator.' });
+    }
     if (user.status !== 'Active') {
-      return res.status(403).json({ error: 'User account is deactivated.' });
+      return res.status(403).json({ error: 'Your account has been deactivated.' });
     }
     const token = jwt.sign(
       { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar },
@@ -1329,6 +1450,88 @@ app.post('/api/auth/login', async (req, res) => {
       { expiresIn: '24h' }
     );
     res.json({ token, user });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Register Endpoint
+app.post('/api/auth/register', async (req, res) => {
+  const { name, email, password } = req.body;
+  try {
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: 'Please provide all required fields (Name, Email, and Password).' });
+    }
+
+    // Check if user already exists
+    const [existing] = await pool.query('SELECT * FROM users WHERE email = ?;', [email]);
+    if (existing.length > 0) {
+      return res.status(400).json({ error: 'An account with this email address already exists.' });
+    }
+
+    const userId = Date.now().toString() + '-' + Math.random().toString(36).substr(2, 9);
+    const hashedPassword = hashPassword(password);
+    const role = 'Operator';
+    const status = 'Pending';
+    const avatar = '/male_boy_avatar.png'; // default avatar
+
+    await pool.query(
+      'INSERT INTO users (id, name, email, password, role, status, avatar) VALUES (?, ?, ?, ?, ?, ?, ?);',
+      [userId, name, email, hashedPassword, role, status, avatar]
+    );
+
+    // Send email alert to admin
+    try {
+      const [settingsRows] = await pool.query('SELECT * FROM settings WHERE id = 1;');
+      if (settingsRows.length > 0) {
+        const settings = settingsRows[0];
+        const transporter = nodemailer.createTransport({
+          host: settings.host,
+          port: parseInt(settings.port),
+          secure: settings.encryption === 'SSL',
+          auth: {
+            user: settings.username,
+            pass: settings.password
+          }
+        });
+
+        const mailOptions = {
+          from: `"${settings.senderName || 'AeroSend'}" <${settings.senderEmail || 'sandbox@aerosend.local'}>`,
+          to: 'vaibhavsoni1059@gmail.com',
+          subject: `[AeroSend] New User Registration Pending Approval: ${name}`,
+          html: `
+            <div style="font-family: sans-serif; padding: 20px; color: #334155; line-height: 1.6; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+              <h2 style="color: #4f46e5; border-bottom: 2px solid #f1f5f9; padding-bottom: 12px; margin-top: 0;">AeroSend User Registration Request</h2>
+              <p>Hello Admin,</p>
+              <p>A new user has signed up for the AeroSend platform and is currently <strong>Pending Approval</strong>:</p>
+              <table style="width: 100%; border-collapse: collapse; margin: 20px 0; background-color: #f8fafc; border-radius: 8px; overflow: hidden;">
+                <tr>
+                  <td style="padding: 12px 16px; font-weight: bold; border-bottom: 1px solid #e2e8f0; color: #64748b; width: 120px;">Full Name:</td>
+                  <td style="padding: 12px 16px; border-bottom: 1px solid #e2e8f0; font-weight: 600; color: #0f172a;">${name}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 12px 16px; font-weight: bold; border-bottom: 1px solid #e2e8f0; color: #64748b;">Email Address:</td>
+                  <td style="padding: 12px 16px; border-bottom: 1px solid #e2e8f0; font-weight: 600; color: #0f172a;"><a href="mailto:${email}" style="color: #4f46e5; text-decoration: none;">${email}</a></td>
+                </tr>
+                <tr>
+                  <td style="padding: 12px 16px; font-weight: bold; color: #64748b;">Request Date:</td>
+                  <td style="padding: 12px 16px; color: #0f172a;">${new Date().toLocaleString()}</td>
+                </tr>
+              </table>
+              <p>To approve or reject this request, please log into your Admin account, go to <strong>Settings</strong>, and open the <strong>Users & Permissions</strong> panel.</p>
+              <p style="margin-top: 32px; font-size: 11px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 16px; text-align: center;">This is an automated system notification from AeroSend.</p>
+            </div>
+          `
+        };
+
+        await transporter.sendMail(mailOptions);
+        console.log(`Registration approval email sent to Admin for user: ${email}`);
+      }
+    } catch (mailErr) {
+      console.error('Failed to send registration notification email to Admin:', mailErr.message);
+    }
+
+    res.status(201).json({ success: true, message: 'Registration submitted successfully. Awaiting administrator approval.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1360,8 +1563,24 @@ app.get('/api/tracker/open/:recipientId.gif', async (req, res) => {
 // Telemetry tracker: Click redirect handler
 app.get('/api/tracker/click', async (req, res) => {
   const { recipient, url } = req.query;
+  
+  if (!url) {
+    return res.status(400).send('Invalid redirect parameters.');
+  }
+
+  // Validate URL to prevent Open Redirect/phishing vulnerabilities
+  let parsedUrl;
   try {
-    if (recipient && url) {
+    parsedUrl = new URL(url);
+  } catch {
+    return res.status(400).send('Invalid redirect URL.');
+  }
+  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+    return res.status(400).send('Unsafe protocol in redirect URL.');
+  }
+
+  try {
+    if (recipient) {
       const clickedAt = new Date();
       await pool.query(
         "UPDATE recipients SET status = 'Clicked', clickedAt = ?, sentAt = ? WHERE id = ?;",
@@ -1373,11 +1592,7 @@ app.get('/api/tracker/click', async (req, res) => {
     console.error('[Click Tracker Error]:', err.message);
   }
 
-  if (url) {
-    res.redirect(url);
-  } else {
-    res.status(400).send('Invalid redirect parameters.');
-  }
+  res.redirect(url);
 });
 
 // ─────────────────────────────────────────────────────────────────
@@ -1599,6 +1814,13 @@ async function checkAndSendFollowups() {
 // Unsubscribe web page confirmation
 app.get('/api/unsubscribe/:recipientId/:token', async (req, res) => {
   const { recipientId, token } = req.params;
+
+  // Validate parameters to prevent Reflected XSS
+  const safeIdRegex = /^[a-zA-Z0-9_\-]+$/;
+  if (!safeIdRegex.test(recipientId) || !safeIdRegex.test(token)) {
+    return res.status(400).send('Invalid unsubscribe parameters.');
+  }
+
   res.send(`
     <html>
       <head>
@@ -1894,10 +2116,15 @@ async function checkAndLaunchScheduledCampaigns() {
     console.log(`[Scheduler] Found due campaign: "${campaign.name}" (${campaign.id}) scheduled for ${campaign.scheduleDate}`);
 
     const smtpSettings = await getSMTPSettings();
-    await pool.query(
-      `UPDATE campaigns SET status = 'Sending', sendTime = ? WHERE id = ?;`,
+    const [result] = await pool.query(
+      `UPDATE campaigns SET status = 'Sending', sendTime = ? WHERE id = ? AND status = 'Scheduled';`,
       [nowUtc, campaign.id]
     );
+
+    if (result.affectedRows === 0) {
+      console.log(`[Scheduler] Campaign "${campaign.name}" (${campaign.id}) was already claimed by another scheduler instance.`);
+      return;
+    }
 
     const [recipients] = await pool.query(
       `SELECT * FROM recipients WHERE campaignId = ? ORDER BY id ASC;`,
@@ -2028,13 +2255,41 @@ app.post('/api/validate-emails', async (req, res) => {
 // Start the scheduled campaign polling loop (checks every 10 seconds)
 setInterval(checkAndLaunchScheduledCampaigns, 10000);
 
-// Follow-up email cron — runs every hour to dispatch pending follow-up sequences
-setInterval(checkAndSendFollowups, 60 * 60 * 1000);
+// Run database column modification migration safely
+async function runMigrations() {
+  try {
+    await pool.query("ALTER TABLE followup_sequences MODIFY COLUMN delayDays DECIMAL(12,5) NOT NULL DEFAULT 3.00000;");
+    console.log("[Migration] Modified followup_sequences.delayDays column to DECIMAL(12,5).");
+  } catch (err) {
+    if (!err.message.includes("Table") && !err.message.includes("does not exist") && !err.message.includes("executeJsonQuery")) {
+      console.warn("[Migration Warning]: Failed to alter delayDays column:", err.message);
+    }
+  }
+}
+runMigrations();
+
+// Follow-up email cron — runs every minute to support minute-level and hour-level follow-ups
+setInterval(checkAndSendFollowups, 60 * 1000);
 // Also run once on startup to catch any follow-ups that were due while server was down
 setTimeout(checkAndSendFollowups, 5000);
 
 // Run startup recovery checks for any interrupted campaigns
 resumeInterruptedCampaigns();
+
+// Global Error Handler Middleware
+app.use((err, req, res, next) => {
+  console.error('[Global Error Handler]:', err.stack || err.message || err);
+  
+  const status = err.status || 500;
+  const message = process.env.NODE_ENV === 'production'
+    ? 'An unexpected error occurred on the server.'
+    : err.message || 'Internal Server Error';
+    
+  res.status(status).json({
+    error: message,
+    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
+  });
+});
 
 app.listen(port, () => {
   console.log(`Server is running at http://localhost:${port}`);

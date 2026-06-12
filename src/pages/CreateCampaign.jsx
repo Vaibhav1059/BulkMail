@@ -624,6 +624,44 @@ export const CreateCampaign = () => {
     setCurrentStep(prev => Math.max(1, prev - 1));
   };
 
+  const renderNavigationButtons = (position = 'bottom') => {
+    return (
+      <div className={`flex justify-between items-center ${position === 'top' ? 'pb-3 border-b border-slate-100 mb-4' : 'pt-3 border-t border-slate-100 mt-4'}`}>
+        <button
+          type="button"
+          onClick={handlePrevStep}
+          disabled={currentStep === 1}
+          className="btn-secondary py-2 px-4 text-xs disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1"
+        >
+          <ArrowLeft size={14} /> Back
+        </button>
+
+        {currentStep < 5 ? (
+          <button
+            type="button"
+            onClick={handleNextStep}
+            className="btn-primary py-2 px-4 text-xs flex items-center gap-1"
+          >
+            Next <ArrowRight size={14} />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleLaunch}
+            disabled={isLaunching || wizardRecipients.filter(r => r.status === 'Valid').length === 0}
+            className="btn-success py-2 px-5 text-xs flex items-center gap-1.5 font-bold shadow-md"
+          >
+            {isLaunching
+              ? 'Launching dispatch...'
+              : campaignDetails.scheduleOption === 'schedule'
+                ? 'Schedule Campaign'
+                : 'Start Bulk Send'}
+          </button>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       {/* Page Title */}
@@ -761,6 +799,8 @@ export const CreateCampaign = () => {
           })}
         </div>
       </div>
+
+      {renderNavigationButtons('top')}
 
       {/* STEP 1: CAMPAIGN DETAILS */}
       {currentStep === 1 && (
@@ -1441,26 +1481,6 @@ export const CreateCampaign = () => {
           </div>
         </div>
       )}
-
-      {/* Footer Navigation Buttons */}
-      <div className="flex justify-between items-center pt-2">
-        <button
-          onClick={handlePrevStep}
-          disabled={currentStep === 1}
-          className="btn-secondary py-2 px-4 text-xs disabled:opacity-30 disabled:cursor-not-allowed"
-        >
-          <ArrowLeft size={14} /> Back
-        </button>
-
-        {currentStep < 5 && (
-          <button
-            onClick={handleNextStep}
-            className="btn-primary py-2 px-4 text-xs"
-          >
-            Next <ArrowRight size={14} />
-          </button>
-        )}
-      </div>
 
       {/* SEND TEST EMAIL MODAL */}
       {showTestModal && (

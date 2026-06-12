@@ -219,11 +219,11 @@ export const AppProvider = ({ children }) => {
     await refreshData();
   };
 
-  const login = async (email) => {
+  const login = async (email, password) => {
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
+      body: JSON.stringify({ email, password })
     });
     if (!res.ok) {
       const data = await res.json();
@@ -242,6 +242,19 @@ export const AppProvider = ({ children }) => {
     localStorage.removeItem('aerosend_user');
     setCurrentUser(null);
     setToken(null);
+  };
+
+  const register = async (name, email, password) => {
+    const res = await fetch(`${API_BASE}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Registration failed');
+    }
+    return data;
   };
 
   const addUser = async (name, email, role) => {
@@ -603,6 +616,7 @@ export const AppProvider = ({ children }) => {
       token,
       login,
       logout,
+      register,
       authFetch
     }}>
       {children}

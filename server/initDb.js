@@ -1,4 +1,9 @@
 import mysql from 'mysql2/promise';
+import bcrypt from 'bcryptjs';
+
+function hashPassword(password) {
+  return bcrypt.hashSync(password, 10);
+}
 
 async function initDB() {
   const connection = await mysql.createConnection({
@@ -95,10 +100,11 @@ async function initDB() {
         repliedAt DATETIME DEFAULT NULL,
         followupStep INT DEFAULT 0,
         INDEX idx_campaignId (campaignId),
-        INDEX idx_email (email)
+        INDEX idx_email (email),
+        FOREIGN KEY (campaignId) REFERENCES campaigns(id) ON DELETE CASCADE
       );
     `);
-    console.log('Upgraded Recipients table created.');
+    console.log('Upgraded Recipients table created with Cascade FKey.');
 
     // 5b. Create Follow-up Sequences Table
     await connection.query(`
@@ -106,7 +112,7 @@ async function initDB() {
         id INT AUTO_INCREMENT PRIMARY KEY,
         campaignId VARCHAR(50) NOT NULL,
         step INT NOT NULL DEFAULT 1,
-        delayDays INT NOT NULL DEFAULT 3,
+        delayDays DECIMAL(12,5) NOT NULL DEFAULT 3.00000,
         conditions TEXT,
         condition_logic VARCHAR(10) DEFAULT 'AND',
         subject VARCHAR(255) NOT NULL,
@@ -116,10 +122,11 @@ async function initDB() {
         executedAt DATETIME DEFAULT NULL,
         sentCount INT DEFAULT 0,
         INDEX idx_fu_campaignId (campaignId),
-        INDEX idx_fu_status (status)
+        INDEX idx_fu_status (status),
+        FOREIGN KEY (campaignId) REFERENCES campaigns(id) ON DELETE CASCADE
       );
     `);
-    console.log('Follow-up Sequences table created.');
+    console.log('Follow-up Sequences table created with Cascade FKey.');
 
     // 6. Create Audit Logs Table with campaign tracking columns and cascade rules
     await connection.query(`
@@ -139,10 +146,11 @@ async function initDB() {
         openStatus VARCHAR(50) DEFAULT 'Not Opened',
         failureDetails TEXT DEFAULT NULL,
         deletedAt VARCHAR(50) DEFAULT NULL,
-        INDEX idx_audit_campaignId (campaignId)
+        INDEX idx_audit_campaignId (campaignId),
+        FOREIGN KEY (campaignId) REFERENCES campaigns(id) ON DELETE SET NULL
       );
     `);
-    console.log('Upgraded Audit Logs table created.');
+    console.log('Upgraded Audit Logs table created with SET NULL FKey.');
 
     // 6b. Create Contacts and Lists Tables (Audience)
     await connection.query(`
@@ -204,30 +212,40 @@ async function initDB() {
     console.log('Default SMTP Config seeded.');
 
     // 7. Create Users Table
+    // Drop first to apply clean schema with password
+    await connection.query('DROP TABLE IF EXISTS users;');
     await connection.query(`
-      CREATE TABLE IF NOT EXISTS users (
+      CREATE TABLE users (
         id VARCHAR(50) PRIMARY KEY,
         name VARCHAR(255),
-        email VARCHAR(255),
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
         role VARCHAR(50),
         status VARCHAR(50) DEFAULT 'Active',
         avatar VARCHAR(255)
       );
     `);
-    console.log('Users table checked.');
+    console.log('Users table created.');
 
     // Seed default users (clean and seed only Vaibhav Soni)
-    await connection.query('DELETE FROM users;');
     const defaultUsers = [
-      { id: '1', name: 'Vaibhav Soni', email: 'vaibhavsoni1059@gmail.com', role: 'Admin', status: 'Active', avatar: '/male_boy_avatar.png' }
+      {
+        id: '1',
+        name: 'Vaibhav Soni',
+        email: 'vaibhavsoni1059@gmail.com',
+        password: hashPassword('admin123'),
+        role: 'Admin',
+        status: 'Active',
+        avatar: '/male_boy_avatar.png'
+      }
     ];
     for (const u of defaultUsers) {
       await connection.query(`
-        INSERT INTO users (id, name, email, role, status, avatar)
-        VALUES (?, ?, ?, ?, ?, ?);
-      `, [u.id, u.name, u.email, u.role, u.status, u.avatar]);
+        INSERT INTO users (id, name, email, password, role, status, avatar)
+        VALUES (?, ?, ?, ?, ?, ?, ?);
+      `, [u.id, u.name, u.email, u.password, u.role, u.status, u.avatar]);
     }
-    console.log('Seeded Vaibhav Soni as the sole user in database.');
+    console.log('Seeded Vaibhav Soni as the sole user in database with password hash.');
 
     // 8. Create Templates Table (Don't drop to preserve templates)
     await connection.query(`

@@ -33,6 +33,18 @@ const CONDITION_OPTIONS = [
 
 const MAX_STEPS = 3;
 
+const parseDelay = (delayDays) => {
+  if (!delayDays || delayDays <= 0) return { value: 1, unit: 'minutes' };
+  const totalMinutes = Math.round(delayDays * 1440);
+  if (totalMinutes % 1440 === 0) {
+    return { value: totalMinutes / 1440, unit: 'days' };
+  }
+  if (totalMinutes % 60 === 0) {
+    return { value: totalMinutes / 60, unit: 'hours' };
+  }
+  return { value: totalMinutes, unit: 'minutes' };
+};
+
 const defaultStep = (stepNum) => ({
   step: stepNum,
   delayDays: stepNum === 1 ? 3 : stepNum === 2 ? 5 : 7,
@@ -198,9 +210,14 @@ export function FollowupSequenceBuilder({ sequences, onChange }) {
                         </span>
                       )}
                     </div>
-                    <div style={{ fontSize: '10px', color: '#6366f1', marginTop: '2px', fontWeight: 600 }}>
-                      After {step.delayDays} day{step.delayDays !== 1 ? 's' : ''} · {summary}
-                    </div>
+                    {(() => {
+                      const { value: delayVal, unit: delayUnit } = parseDelay(step.delayDays);
+                      return (
+                        <div style={{ fontSize: '10px', color: '#6366f1', marginTop: '2px', fontWeight: 600 }}>
+                          After {delayVal} {delayUnit} · {summary}
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -241,19 +258,54 @@ export function FollowupSequenceBuilder({ sequences, onChange }) {
                         Send After
                       </label>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <input
-                          type="number" min={1} max={30}
-                          value={step.delayDays}
-                          onChange={(e) => handleChange(idx, 'delayDays', Math.max(1, Math.min(30, parseInt(e.target.value) || 1)))}
-                          style={{
-                            width: '64px', padding: '6px 10px', fontSize: '14px', fontWeight: 700,
-                            border: '1px solid hsl(210 32% 88%)', borderRadius: '8px',
-                            background: '#fff', color: 'var(--slate-800)', textAlign: 'center', outline: 'none'
-                          }}
-                        />
-                        <span style={{ fontSize: '12px', color: 'var(--slate-500)' }}>
-                          day{step.delayDays !== 1 ? 's' : ''} after original email is sent
-                        </span>
+                        {(() => {
+                          const { value: delayVal, unit: delayUnit } = parseDelay(step.delayDays);
+                          return (
+                            <>
+                              <input
+                                type="number"
+                                min={1}
+                                max={delayUnit === 'minutes' ? 1440 : delayUnit === 'hours' ? 72 : 30}
+                                value={delayVal}
+                                onChange={(e) => {
+                                  const val = Math.max(1, parseInt(e.target.value) || 1);
+                                  let newDelayDays = val;
+                                  if (delayUnit === 'minutes') newDelayDays = val / 1440;
+                                  else if (delayUnit === 'hours') newDelayDays = val / 24;
+                                  handleChange(idx, 'delayDays', newDelayDays);
+                                }}
+                                style={{
+                                  width: '70px', padding: '6px 10px', fontSize: '14px', fontWeight: 700,
+                                  border: '1px solid hsl(210 32% 88%)', borderRadius: '8px',
+                                  background: '#fff', color: 'var(--slate-800)', textAlign: 'center', outline: 'none'
+                                }}
+                              />
+                              <select
+                                value={delayUnit}
+                                onChange={(e) => {
+                                  const newUnit = e.target.value;
+                                  let newDelayDays = delayVal;
+                                  if (newUnit === 'minutes') newDelayDays = delayVal / 1440;
+                                  else if (newUnit === 'hours') newDelayDays = delayVal / 24;
+                                  handleChange(idx, 'delayDays', newDelayDays);
+                                }}
+                                style={{
+                                  padding: '6px 10px', fontSize: '12px', fontWeight: 600,
+                                  border: '1px solid hsl(210 32% 88%)', borderRadius: '8px',
+                                  background: '#fff', color: 'var(--slate-700)', outline: 'none',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                <option value="minutes">Minute{delayVal !== 1 ? 's' : ''}</option>
+                                <option value="hours">Hour{delayVal !== 1 ? 's' : ''}</option>
+                                <option value="days">Day{delayVal !== 1 ? 's' : ''}</option>
+                              </select>
+                              <span style={{ fontSize: '12px', color: 'var(--slate-500)' }}>
+                                after original email is sent
+                              </span>
+                            </>
+                          );
+                        })()}
                       </div>
                     </div>
 

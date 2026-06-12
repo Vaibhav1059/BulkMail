@@ -1,13 +1,21 @@
 import { useState, useContext, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
-import { Mail, ShieldAlert, ArrowRight } from 'lucide-react';
+import { Mail, ShieldAlert, ArrowRight, Lock, Eye, EyeOff, User, CheckCircle2 } from 'lucide-react';
 
 export const Login = () => {
-  const { login, token } = useContext(AppContext);
+  const { login, register, token } = useContext(AppContext);
+  const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [registeredSuccess, setRegisteredSuccess] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  
   const navigate = useNavigate();
 
   // If already logged in, redirect to Dashboard
@@ -19,26 +27,77 @@ export const Login = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!email) {
-      setError('Please enter your email address.');
-      return;
-    }
     setError('');
-    setLoading(true);
-    try {
-      await login(email);
-      navigate('/');
-    } catch (err) {
-      setError(err.message || 'Login failed. Please verify your email.');
-    } finally {
-      setLoading(false);
+
+    if (isRegister) {
+      if (!name || !email || !password || !confirmPassword) {
+        setError('Please fill in all fields.');
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError('Passwords do not match.');
+        return;
+      }
+      setLoading(true);
+      try {
+        const res = await register(name, email, password);
+        setSuccessMessage(res.message || 'Registration submitted successfully. Awaiting administrator approval.');
+        setRegisteredSuccess(true);
+        // Clear registration fields
+        setName('');
+        setEmail('');
+        setPassword('');
+        setConfirmPassword('');
+      } catch (err) {
+        setError(err.message || 'Registration failed. Please verify the information and try again.');
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      if (!email || !password) {
+        setError('Please enter both your email and password.');
+        return;
+      }
+      setLoading(true);
+      try {
+        await login(email, password);
+        navigate('/');
+      } catch (err) {
+        setError(err.message || 'Login failed. Please verify your credentials.');
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
-  const handleQuickLogin = (demoEmail) => {
-    setEmail(demoEmail);
-    setError('');
-  };
+
+  if (registeredSuccess) {
+    return (
+      <div style={styles.container}>
+        <div style={{ ...styles.blob, ...styles.blobLeft }} />
+        <div style={{ ...styles.blob, ...styles.blobRight }} />
+        <div style={styles.card}>
+          <div style={styles.successHeader}>
+            <div style={styles.successIconWrapper}>
+              <CheckCircle2 size={32} style={{ color: '#10b981' }} />
+            </div>
+            <h2 style={styles.successTitle}>Request Submitted</h2>
+            <p style={styles.successMessage}>{successMessage}</p>
+          </div>
+          <button 
+            onClick={() => {
+              setRegisteredSuccess(false);
+              setIsRegister(false);
+              setError('');
+            }} 
+            style={styles.button}
+          >
+            Back to Sign In
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.container}>
@@ -61,6 +120,24 @@ export const Login = () => {
             </div>
           )}
 
+          {isRegister && (
+            <div style={styles.inputGroup}>
+              <label style={styles.label}>Full Name</label>
+              <div style={styles.inputWrapper}>
+                <User size={16} style={styles.inputIcon} />
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="John Doe"
+                  style={styles.input}
+                  disabled={loading}
+                  required
+                />
+              </div>
+            </div>
+          )}
+
           <div style={styles.inputGroup}>
             <label style={styles.label}>Corporate Email Address</label>
             <div style={styles.inputWrapper}>
@@ -77,30 +154,88 @@ export const Login = () => {
             </div>
           </div>
 
+          <div style={styles.inputGroup}>
+            <label style={styles.label}>Password</label>
+            <div style={styles.inputWrapper}>
+              <Lock size={16} style={styles.inputIcon} />
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                style={styles.input}
+                disabled={loading}
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                style={styles.eyeBtn}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
+
+          {isRegister && (
+            <div style={styles.inputGroup}>
+              <label style={styles.label}>Confirm Password</label>
+              <div style={styles.inputWrapper}>
+                <Lock size={16} style={styles.inputIcon} />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="••••••••"
+                  style={styles.input}
+                  disabled={loading}
+                  required
+                />
+              </div>
+            </div>
+          )}
+
           <button type="submit" style={styles.button} disabled={loading}>
-            {loading ? 'Authenticating...' : 'Sign In'}
+            {loading 
+              ? (isRegister ? 'Creating Account...' : 'Authenticating...') 
+              : (isRegister ? 'Create Account' : 'Sign In')
+            }
             {!loading && <ArrowRight size={16} style={{ marginLeft: 8 }} />}
           </button>
         </form>
 
-        <div style={styles.divider}>
-          <span style={styles.dividerText}>Demo Access Accounts</span>
+        <div style={styles.toggleText}>
+          {isRegister ? (
+            <>
+              Already have an account?{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsRegister(false);
+                  setError('');
+                }}
+                style={styles.toggleLink}
+              >
+                Sign In
+              </button>
+            </>
+          ) : (
+            <>
+              Don't have an account?{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsRegister(true);
+                  setError('');
+                }}
+                style={styles.toggleLink}
+              >
+                Create Account
+              </button>
+            </>
+          )}
         </div>
 
-        <div style={styles.demoContainer}>
-          <p style={styles.demoHelp}>Click to quick login with a demo account:</p>
-          <div style={styles.demoButtons}>
-            <button
-              onClick={() => handleQuickLogin('vaibhavsoni1059@gmail.com')}
-              style={{
-                ...styles.demoBtn,
-                ...(email === 'vaibhavsoni1059@gmail.com' ? styles.demoBtnActive : {}),
-              }}
-            >
-              Vaibhav Soni (vaibhavsoni1059@gmail.com)
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -150,7 +285,7 @@ const styles = {
     WebkitBackdropFilter: 'blur(20px)',
     border: '1px solid rgba(255, 255, 255, 0.08)',
     borderRadius: '24px',
-    padding: '40px',
+    padding: '32px 40px',
     width: '100%',
     maxWidth: '440px',
     boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
@@ -161,7 +296,7 @@ const styles = {
   },
   header: {
     textAlign: 'center',
-    marginBottom: '32px',
+    marginBottom: '24px',
   },
   logo: {
     width: '48px',
@@ -174,7 +309,7 @@ const styles = {
     color: '#ffffff',
     fontSize: '22px',
     fontWeight: 'bold',
-    margin: '0 auto 16px auto',
+    margin: '0 auto 12px auto',
     boxShadow: '0 8px 16px rgba(99, 102, 241, 0.3)',
   },
   title: {
@@ -192,7 +327,7 @@ const styles = {
   form: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '20px',
+    gap: '16px',
   },
   errorBanner: {
     display: 'flex',
@@ -233,11 +368,23 @@ const styles = {
     background: 'rgba(255, 255, 255, 0.05)',
     border: '1px solid rgba(255, 255, 255, 0.1)',
     borderRadius: '10px',
-    padding: '12px 14px 12px 40px',
+    padding: '12px 36px 12px 40px',
     color: '#ffffff',
     fontSize: '14px',
     outline: 'none',
     transition: 'all 0.2s ease',
+  },
+  eyeBtn: {
+    position: 'absolute',
+    right: '14px',
+    color: '#64748b',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    padding: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   button: {
     background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
@@ -253,11 +400,29 @@ const styles = {
     justifyContent: 'center',
     transition: 'all 0.2s ease',
     boxShadow: '0 4px 12px rgba(99, 102, 241, 0.25)',
+    marginTop: '8px',
+  },
+  toggleText: {
+    color: '#94a3b8',
+    fontSize: '13px',
+    textAlign: 'center',
+    marginTop: '20px',
+  },
+  toggleLink: {
+    background: 'none',
+    border: 'none',
+    color: '#6366f1',
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    padding: 0,
+    fontSize: '13px',
+    marginLeft: '4px',
+    textDecoration: 'underline',
   },
   divider: {
     display: 'flex',
     alignItems: 'center',
-    margin: '24px 0',
+    margin: '20px 0',
   },
   dividerText: {
     color: '#475569',
@@ -293,7 +458,6 @@ const styles = {
     color: '#94a3b8',
     fontSize: '12px',
     cursor: 'pointer',
-    textAlign: 'left',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -312,6 +476,32 @@ const styles = {
     padding: '2px 6px',
     borderRadius: '4px',
     color: '#cbd5e1',
+  },
+  successHeader: {
+    textAlign: 'center',
+    marginBottom: '24px',
+  },
+  successIconWrapper: {
+    width: '64px',
+    height: '64px',
+    background: 'rgba(16, 185, 129, 0.1)',
+    borderRadius: '50%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    margin: '0 auto 16px auto',
+  },
+  successTitle: {
+    color: '#ffffff',
+    fontSize: '20px',
+    fontWeight: 'bold',
+    margin: '0 0 8px 0',
+  },
+  successMessage: {
+    color: '#94a3b8',
+    fontSize: '13px',
+    lineHeight: '1.6',
+    margin: 0,
   },
 };
 

@@ -126,7 +126,7 @@ export const Layout = ({ children }) => {
               <div className="w-8 h-8 flex-shrink-0 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-lg text-white shadow-glow-indigo">
                 A
               </div>
-              <span className="font-bold text-lg tracking-tight text-slate-800 truncate">
+              <span className="font-bold text-lg tracking-tight text-slate-800 truncate py-4">
                 AeroSend
               </span>
             </motion.div>
@@ -217,7 +217,7 @@ export const Layout = ({ children }) => {
       {/* Main Container */}
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-100 min-w-0">
         {/* Header */}
-        <header className="h-16 border-b border-slate-200 bg-white/80 backdrop-blur-xl flex items-center justify-between px-6 z-10">
+        <header className="h-16 border-b border-slate-200 bg-white md:bg-white/80 backdrop-blur-xl flex items-center justify-between px-6 z-10">
           <div className="flex items-center gap-3">
             {/* Hamburger — mobile only (hidden on md+ where sidebar is always visible) */}
             <button
@@ -398,7 +398,7 @@ export const Layout = ({ children }) => {
                     <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-lg text-white shadow-glow-indigo">
                       A
                     </div>
-                    <span className="font-bold text-lg tracking-tight text-slate-800">
+                    <span className="font-bold text-lg tracking-tight text-slate-800 py-4">
                       AeroSend
                     </span>
                   </div>
