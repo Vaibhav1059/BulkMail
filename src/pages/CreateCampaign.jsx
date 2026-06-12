@@ -407,7 +407,7 @@ export const CreateCampaign = () => {
     setSendingTest(true);
     setTestSentStatus(null);
     try {
-      const res = await sendTestEmail(testEmail, campaignDetails.subject, bodyText);
+      const res = await sendTestEmail(testEmail, campaignDetails.subject, bodyText, campaignDetails.smtpUsed);
       setIsTestMock(!!(res && res.isMock));
       setTestSentStatus('success');
     } catch (err) {
@@ -521,6 +521,7 @@ export const CreateCampaign = () => {
         subject: campaignDetails.subject,
         body: bodyText,
         recipientsCount: finalRecipientsCount,
+        smtpUsed: campaignDetails.smtpUsed,
         scheduleDate: (campaignDetails.scheduleOption === 'schedule' && campaignDetails.scheduleDate)
           ? new Date(campaignDetails.scheduleDate).toISOString()
           : null,
@@ -564,7 +565,8 @@ export const CreateCampaign = () => {
           validRecipients,
           range,
           concurrency,
-          delayOverride
+          delayOverride,
+          campaignDetails.smtpUsed
         );
         navigate('/sending-monitor');
       }

@@ -235,12 +235,12 @@ app.get('/api/campaigns/:id', async (req, res) => {
 
 // 2. Save campaign
 app.post('/api/campaigns', async (req, res) => {
-  const { id, name, subject, body, status, date, creator, recipientsCount, scheduleDate, recipients, mappedFields } = req.body;
+  const { id, name, subject, body, status, date, creator, recipientsCount, scheduleDate, recipients, mappedFields, smtpUsed } = req.body;
   try {
     await pool.query(
       `INSERT INTO campaigns (id, name, subject, body, status, date, creator, recipientsCount, sentCount, failedCount, smtpUsed, sendTime, completionTime, scheduleDate)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, NULL, NULL, ?);`,
-      [id, name, subject, body, status, date, creator, recipientsCount, scheduleDate || null]
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, NULL, NULL, ?);`,
+      [id, name, subject, body, status, date, creator, recipientsCount, smtpUsed || 'default', scheduleDate || null]
     );
 
     if (recipients && Array.isArray(recipients) && mappedFields) {
@@ -564,9 +564,9 @@ app.post('/api/settings/verify', async (req, res) => {
 
 // 7b. Send Test Email (Real and Mock delivery)
 app.post('/api/campaigns/send-test', async (req, res) => {
-  const { testEmail, subject, body } = req.body;
+  const { testEmail, subject, body, smtpUsed } = req.body;
   try {
-    const smtpSettings = await getSMTPSettings();
+    const smtpSettings = await getSMTPSettings(smtpUsed);
     const isMock = smtpSettings.host.includes('mock') || smtpSettings.password.includes('mock');
 
     if (isMock) {
@@ -1259,7 +1259,7 @@ app.post('/api/sending/launch', async (req, res) => {
   // Update DB status to Sending with SMTP metadata and Send Time
   await pool.query(
     'UPDATE campaigns SET status = "Sending", sentCount = 0, failedCount = 0, recipientsCount = ?, smtpUsed = ?, sendTime = ? WHERE id = ?;',
-    [totalCount, smtpSettings.host || 'Local Mock', sendTime, campaignId]
+    [totalCount, smtpUsed || 'default', sendTime, campaignId]
   );
 
   await logEvent(

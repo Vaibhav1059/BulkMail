@@ -501,11 +501,11 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  const sendTestEmail = async (testEmail, subject, body) => {
+  const sendTestEmail = async (testEmail, subject, body, smtpUsed) => {
     try {
       const res = await authFetch(`${API_BASE}/campaigns/send-test`, {
         method: 'POST',
-        body: JSON.stringify({ testEmail, subject, body })
+        body: JSON.stringify({ testEmail, subject, body, smtpUsed })
       });
       const data = await res.json();
       if (!res.ok) {
@@ -519,7 +519,7 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  const launchCampaign = async (campaignId, campaignName, subject, body, recipients, range, concurrency, delay) => {
+  const launchCampaign = async (campaignId, campaignName, subject, body, recipients, range, concurrency, delay, smtpUsed) => {
     const payload = {
       campaignId,
       campaignName,
@@ -529,7 +529,8 @@ export const AppProvider = ({ children }) => {
       range,
       concurrency,
       delay,
-      mappedFields: csvData.mappedFields
+      mappedFields: csvData.mappedFields,
+      smtpUsed
     };
 
     try {

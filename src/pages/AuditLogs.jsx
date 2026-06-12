@@ -195,7 +195,8 @@ export const AuditLogs = () => {
         formattedRecipients,
         null, // range
         1, // concurrency
-        0.5 // delay
+        0.5, // delay
+        log.smtpUsed || 'default'
       );
 
       navigate('/sending-monitor');
