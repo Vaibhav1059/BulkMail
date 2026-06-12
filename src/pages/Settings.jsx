@@ -200,7 +200,7 @@ export const Settings = () => {
 
         {/* Users & Permissions Table */}
         <div className="bg-white border border-slate-200/80 rounded-xl shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+          <div className="px-4 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
             <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
               <ShieldCheck size={14} className="text-indigo-600" /> Registered System Operators
             </h3>
