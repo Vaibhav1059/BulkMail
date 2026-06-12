@@ -555,21 +555,8 @@ app.post('/api/settings/verify', async (req, res) => {
   }
 
   try {
-    const transporter = nodemailer.createTransport({
-      host,
-      port: parseInt(port),
-      secure: encryption === 'SSL',
-      auth: {
-        user: username,
-        pass: password
-      },
-      tls: {
-        rejectUnauthorized: false
-      }
-    });
-
-    await transporter.verify();
-    res.json({ success: true, isMock: false });
+    const result = await verifyCredentials(host, port, username, password, encryption);
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -587,19 +574,6 @@ app.post('/api/campaigns/send-test', async (req, res) => {
       await logEvent('Administrator', `Sent simulated test email to ${testEmail}`, 'Success');
       return res.json({ success: true, isMock: true, message: 'Mock test email sent successfully.' });
     }
-
-    const transporter = nodemailer.createTransport({
-      host: smtpSettings.host,
-      port: parseInt(smtpSettings.port),
-      secure: smtpSettings.encryption === 'SSL',
-      auth: {
-        user: smtpSettings.username,
-        pass: smtpSettings.password
-      },
-      tls: {
-        rejectUnauthorized: false
-      }
-    });
 
     // Compile templates with sample user info
     const sampleName = 'Test Recipient';
@@ -628,7 +602,7 @@ app.post('/api/campaigns/send-test', async (req, res) => {
             <div style="width: 28px; height: 28px; border-radius: 6px; background: linear-gradient(135deg, #6366f1, #8b5cf6); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px;">A</div>
             <span style="font-size: 14px; font-weight: bold; color: #0f172a;">AeroSend System</span>
           </div>
-
+ 
           <div style="color: #0f172a;">
             <p style="margin: 0 0 12px 0;">${formattedBody}</p>
           </div>
@@ -641,12 +615,7 @@ app.post('/api/campaigns/send-test', async (req, res) => {
       </div>
     `;
 
-    await transporter.sendMail({
-      from: `"${smtpSettings.senderName}" <${smtpSettings.senderEmail}>`,
-      to: testEmail,
-      subject: `[Test] ${compiledSubject}`,
-      html: htmlBody
-    });
+    await sendEmailViaConfig(smtpSettings, testEmail, `[Test] ${compiledSubject}`, htmlBody);
 
     await logEvent('Administrator', `Sent test email to ${testEmail}`, 'Success');
     res.json({ success: true, isMock: false });
@@ -722,6 +691,138 @@ async function getSMTPSettings(profileId = null) {
   return rows[0];
 }
 
+// Intercept email sending to route via HTTP APIs if provider matches
+async function sendEmailViaConfig(smtpSettings, to, subject, html) {
+  const host = (smtpSettings.host || '').toLowerCase();
+  const isResend = host.includes('resend');
+  const isSendGrid = host.includes('sendgrid');
+
+  if (isResend) {
+    const apiKey = smtpSettings.password;
+    const fromStr = smtpSettings.senderName 
+      ? `"${smtpSettings.senderName}" <${smtpSettings.senderEmail}>`
+      : smtpSettings.senderEmail;
+
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: fromStr,
+        to: [to],
+        subject: subject,
+        html: html
+      })
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Resend HTTP API failed: ${res.status} - ${errText}`);
+    }
+    return { success: true, provider: 'Resend' };
+  } else if (isSendGrid) {
+    const apiKey = smtpSettings.password;
+    const fromObj = {
+      email: smtpSettings.senderEmail
+    };
+    if (smtpSettings.senderName) {
+      fromObj.name = smtpSettings.senderName;
+    }
+
+    const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        personalizations: [{ to: [{ email: to }] }],
+        from: fromObj,
+        subject: subject,
+        content: [{ type: 'text/html', value: html }]
+      })
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`SendGrid HTTP API failed: ${res.status} - ${errText}`);
+    }
+    return { success: true, provider: 'SendGrid' };
+  } else {
+    // Standard SMTP fallback via Nodemailer
+    const transporter = nodemailer.createTransport({
+      host: smtpSettings.host,
+      port: parseInt(smtpSettings.port),
+      secure: smtpSettings.encryption === 'SSL',
+      auth: {
+        user: smtpSettings.username,
+        pass: smtpSettings.password
+      },
+      tls: {
+        rejectUnauthorized: false
+      }
+    });
+
+    await transporter.sendMail({
+      from: `"${smtpSettings.senderName}" <${smtpSettings.senderEmail}>`,
+      to: to,
+      subject: subject,
+      html: html
+    });
+    return { success: true, provider: 'Nodemailer' };
+  }
+}
+
+// Verify credentials via API ping or SMTP handshake
+async function verifyCredentials(host, port, username, password, encryption) {
+  const hostLower = (host || '').toLowerCase();
+  const isResend = hostLower.includes('resend');
+  const isSendGrid = hostLower.includes('sendgrid');
+
+  if (isResend) {
+    const res = await fetch('https://api.resend.com/domains', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${password}`
+      }
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Resend API key verification failed: ${res.status} - ${errText}`);
+    }
+    return { success: true, isMock: false, provider: 'Resend' };
+  } else if (isSendGrid) {
+    const res = await fetch('https://api.sendgrid.com/v3/scopes', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${password}`
+      }
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`SendGrid API key verification failed: ${res.status} - ${errText}`);
+    }
+    return { success: true, isMock: false, provider: 'SendGrid' };
+  } else {
+    const transporter = nodemailer.createTransport({
+      host,
+      port: parseInt(port),
+      secure: encryption === 'SSL',
+      auth: {
+        user: username,
+        pass: password
+      },
+      tls: {
+        rejectUnauthorized: false
+      }
+    });
+    await transporter.verify();
+    return { success: true, isMock: false, provider: 'SMTP' };
+  }
+}
+
 // Helper to compile placeholders in template text
 function compileTemplate(text, recipient, nameVal, companyVal, emailAddress) {
   let compiled = text || '';
@@ -786,7 +887,7 @@ async function processQueueStep() {
     return;
   }
 
-  const smtpSettings = await getSMTPSettings();
+  const smtpSettings = await getSMTPSettings(activeSendingState.smtpUsed);
   const batchSize = Math.min(activeSendingState.concurrency || 1, activeSendingState.remaining);
   let newSent = activeSendingState.sent;
   let newFailed = activeSendingState.failed;
@@ -878,7 +979,7 @@ async function processQueueStep() {
     const emailFilePath = path.join(campaignFolder, emailFileName);
     fs.writeFileSync(emailFilePath, compiledHtml);
 
-    // 2. Nodemailer Real SMTP Attempt
+    // 2. HTTP Send or Nodemailer Real SMTP Attempt
     const isMock = smtpSettings.host.includes('mock') || smtpSettings.password.includes('mock');
     if (!isMock) {
       const maxRetries = parseInt(smtpSettings.retryAttempts) || 3;
@@ -887,25 +988,7 @@ async function processQueueStep() {
 
       while (attempt < maxRetries && !success) {
         try {
-          const transporter = nodemailer.createTransport({
-            host: smtpSettings.host,
-            port: parseInt(smtpSettings.port),
-            secure: smtpSettings.encryption === 'SSL',
-            auth: {
-              user: smtpSettings.username,
-              pass: smtpSettings.password
-            },
-            tls: {
-              rejectUnauthorized: false
-            }
-          });
-
-          await transporter.sendMail({
-            from: `"${smtpSettings.senderName}" <${smtpSettings.senderEmail}>`,
-            to: emailAddress,
-            subject: compiledSubject,
-            html: compiledHtml
-          });
+          await sendEmailViaConfig(smtpSettings, emailAddress, compiledSubject, compiledHtml);
           success = true;
         } catch (err) {
           attempt++;
@@ -987,7 +1070,7 @@ async function completeCampaignDispatch() {
     [activeSendingState.sent, activeSendingState.failed, completionTime, activeSendingState.campaignId]
   );
 
-  const smtpSettings = await getSMTPSettings();
+  const smtpSettings = await getSMTPSettings(activeSendingState.smtpUsed);
   await logEvent(
     'System Mailer',
     `Campaign "${activeSendingState.campaignName}" finished sending. (${activeSendingState.sent} Sent, ${activeSendingState.failed} Failed)`,
@@ -1009,19 +1092,6 @@ async function completeCampaignDispatch() {
   const isMock = smtpSettings.host.includes('mock') || smtpSettings.password.includes('mock');
   if (!isMock && smtpSettings.senderEmail) {
     try {
-      const transporter = nodemailer.createTransport({
-        host: smtpSettings.host,
-        port: parseInt(smtpSettings.port),
-        secure: smtpSettings.encryption === 'SSL',
-        auth: {
-          user: smtpSettings.username,
-          pass: smtpSettings.password
-        },
-        tls: {
-          rejectUnauthorized: false
-        }
-      });
-
       const successRate = activeSendingState.total > 0 ? Math.round((activeSendingState.sent / activeSendingState.total) * 100) : 0;
       let htmlReport = `
         <div style="font-family: sans-serif; padding: 20px; color: #333;">
@@ -1069,12 +1139,7 @@ async function completeCampaignDispatch() {
         </div>
       `;
 
-      await transporter.sendMail({
-        from: `"${smtpSettings.senderName}" <${smtpSettings.senderEmail}>`,
-        to: smtpSettings.senderEmail,
-        subject: `[AeroSend Report] Dispatch: ${activeSendingState.campaignName}`,
-        html: htmlReport
-      });
+      await sendEmailViaConfig(smtpSettings, smtpSettings.senderEmail, `[AeroSend Report] Dispatch: ${activeSendingState.campaignName}`, htmlReport);
     } catch (err) {
       console.error('Failed to dispatch admin notification email:', err);
     }
@@ -1114,7 +1179,7 @@ async function resumeInterruptedCampaigns() {
         }
         
         if (activeSendingState.status === 'idle') {
-          const smtpSettings = await getSMTPSettings();
+          const smtpSettings = await getSMTPSettings(campaign.smtpUsed);
           activeSendingState = {
             campaignId: campaign.id,
             campaignName: campaign.name,
@@ -1131,7 +1196,8 @@ async function resumeInterruptedCampaigns() {
             mappedFields: { name: 'name', email: 'email', company: 'company' },
             concurrency: 1,
             delayOverride: smtpSettings.delaySeconds || 0.5,
-            showAdminSummary: false
+            showAdminSummary: false,
+            smtpUsed: campaign.smtpUsed || 'default'
           };
           
           const initDelay = (activeSendingState.delayOverride || smtpSettings.delaySeconds || 0.5) * 1000;
@@ -1231,7 +1297,7 @@ app.post('/api/sending/pause', async (req, res) => {
   activeSendingState.status = 'paused';
   activeSendingState.logs.unshift(`[${new Date().toLocaleTimeString()}] Transmission paused by user.`);
   
-  const smtpSettings = await getSMTPSettings();
+  const smtpSettings = await getSMTPSettings(activeSendingState.smtpUsed);
   await logEvent(
     'Administrator', 
     `Paused Campaign "${activeSendingState.campaignName}"`, 
@@ -1253,7 +1319,7 @@ app.post('/api/sending/resume', async (req, res) => {
   activeSendingState.status = 'sending';
   activeSendingState.logs.unshift(`[${new Date().toLocaleTimeString()}] Transmission resumed.`);
   
-  const smtpSettings = await getSMTPSettings();
+  const smtpSettings = await getSMTPSettings(activeSendingState.smtpUsed);
   await logEvent(
     'Administrator', 
     `Resumed Campaign "${activeSendingState.campaignName}"`, 
@@ -1291,7 +1357,7 @@ app.post('/api/sending/stop', async (req, res) => {
     [activeSendingState.sent, activeSendingState.failed, completionTime, activeSendingState.campaignId]
   );
 
-  const smtpSettings = await getSMTPSettings();
+  const smtpSettings = await getSMTPSettings(activeSendingState.smtpUsed);
   await logEvent(
     'Administrator', 
     `Stopped Campaign "${activeSendingState.campaignName}"`, 
@@ -1334,7 +1400,7 @@ app.post('/api/sending/retry', async (req, res) => {
 
   await logEvent('Administrator', `Retrying ${totalCount} failed emails.`, 'Success', activeSendingState.campaignId);
 
-  const smtpSettings = await getSMTPSettings();
+  const smtpSettings = await getSMTPSettings(activeSendingState.smtpUsed);
   const initDelay = (activeSendingState.delayOverride || smtpSettings.delaySeconds || 0.5) * 1000;
   sendingTimer = setTimeout(processQueueStep, initDelay);
 
@@ -1705,20 +1771,6 @@ async function checkAndSendFollowups() {
     );
     if (!sequences || sequences.length === 0) return;
 
-    const smtpSettings = await getSMTPSettings();
-    const isMock = smtpSettings.host.includes('mock') || smtpSettings.password.includes('mock');
-
-    let transporter = null;
-    if (!isMock) {
-      transporter = nodemailer.createTransport({
-        host: smtpSettings.host,
-        port: parseInt(smtpSettings.port),
-        secure: smtpSettings.encryption === 'SSL',
-        auth: { user: smtpSettings.username, pass: smtpSettings.password },
-        tls: { rejectUnauthorized: false }
-      });
-    }
-
     for (const seq of sequences) {
       const [campRows] = await pool.query(
         "SELECT * FROM campaigns WHERE id = ? AND status = 'Completed';",
@@ -1727,6 +1779,9 @@ async function checkAndSendFollowups() {
       if (!campRows || campRows.length === 0) continue;
 
       const campaign = campRows[0];
+      const smtpSettings = await getSMTPSettings(campaign.smtpUsed);
+      const isMock = smtpSettings.host.includes('mock') || smtpSettings.password.includes('mock');
+
       const completionTime = campaign.completionTime ? new Date(campaign.completionTime) : null;
       if (!completionTime) continue;
 
@@ -1773,12 +1828,7 @@ async function checkAndSendFollowups() {
         let success = false;
         if (!isMock) {
           try {
-            await transporter.sendMail({
-              from: `"${smtpSettings.senderName}" <${smtpSettings.senderEmail}>`,
-              to: emailAddress,
-              subject: compiledSubject,
-              html: trackedHtml
-            });
+            await sendEmailViaConfig(smtpSettings, emailAddress, compiledSubject, trackedHtml);
             success = true;
           } catch (err) {
             console.error(`[Follow-up Engine] Failed to send to ${emailAddress}:`, err.message);
@@ -2075,21 +2125,8 @@ app.post('/api/smtp-configs/verify', async (req, res) => {
   }
 
   try {
-    const transporter = nodemailer.createTransport({
-      host,
-      port: parseInt(port),
-      secure: encryption === 'SSL',
-      auth: {
-        user: username,
-        pass: password
-      },
-      tls: {
-        rejectUnauthorized: false
-      }
-    });
-
-    await transporter.verify();
-    res.json({ success: true, isMock: false });
+    const result = await verifyCredentials(host, port, username, password, encryption);
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2118,7 +2155,7 @@ async function checkAndLaunchScheduledCampaigns() {
     const campaign = dueCampaigns[0];
     console.log(`[Scheduler] Found due campaign: "${campaign.name}" (${campaign.id}) scheduled for ${campaign.scheduleDate}`);
 
-    const smtpSettings = await getSMTPSettings();
+    const smtpSettings = await getSMTPSettings(campaign.smtpUsed);
     const [result] = await pool.query(
       `UPDATE campaigns SET status = 'Sending', sendTime = ? WHERE id = ? AND status = 'Scheduled';`,
       [nowUtc, campaign.id]
@@ -2168,7 +2205,8 @@ async function checkAndLaunchScheduledCampaigns() {
       mappedFields: { name: 'name', email: 'email', company: 'company' },
       concurrency: 1,
       delayOverride: smtpSettings.delaySeconds || 0.5,
-      showAdminSummary: false
+      showAdminSummary: false,
+      smtpUsed: campaign.smtpUsed || 'default'
     };
 
     await logEvent(
