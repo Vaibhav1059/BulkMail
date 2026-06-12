@@ -206,74 +206,204 @@ function executeJsonQuery(jsonDb, sql, params = []) {
     return [activeConfigs.slice(0, 1)];
   }
 
-  // 3. SELECT * FROM smtp_configs;
+  // 3. SELECT * FROM smtp_configs WHERE id = ?;
+  if (normalizedSql.startsWith('select * from smtp_configs where id = ?')) {
+    const id = params[0];
+    const filtered = jsonDb.data.smtp_configs.filter(c => c.id === id);
+    return [filtered];
+  }
+
+  // 4. SELECT * FROM smtp_configs;
   if (normalizedSql.startsWith('select * from smtp_configs')) {
     return [jsonDb.data.smtp_configs];
   }
 
-  // 4. SELECT * FROM users;
+  // 5. SELECT * FROM users;
   if (normalizedSql.startsWith('select * from users')) {
     return [jsonDb.data.users];
   }
 
-  // 5. SELECT * FROM users WHERE email = ?;
+  // 6. SELECT * FROM users WHERE email = ?;
   if (normalizedSql.startsWith('select * from users where email = ?')) {
     const email = params[0];
     const filtered = jsonDb.data.users.filter(u => u.email.toLowerCase() === email.toLowerCase());
     return [filtered];
   }
 
-  // 6. SELECT * FROM contact_lists ORDER BY created_at DESC;
+  // 7. SELECT * FROM contact_lists ORDER BY created_at DESC;
   if (normalizedSql.startsWith('select * from contact_lists')) {
     const lists = [...(jsonDb.data.contact_lists || [])];
     lists.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     return [lists];
   }
 
-  // 7. SELECT * FROM contacts;
+  // 8. SELECT * FROM contacts WHERE email = ?;
+  if (normalizedSql.startsWith('select * from contacts where email = ?')) {
+    const email = params[0];
+    const filtered = jsonDb.data.contacts.filter(c => c.email.toLowerCase() === email.toLowerCase());
+    return [filtered];
+  }
+
+  // 9. SELECT * FROM contacts WHERE id = ? AND unsubscribe_token = ?;
+  if (normalizedSql.startsWith('select * from contacts where id = ?')) {
+    const [id, token] = params;
+    const filtered = jsonDb.data.contacts.filter(c => c.id === id && c.unsubscribe_token === token);
+    return [filtered];
+  }
+
+  // 10. SELECT * FROM contacts;
   if (normalizedSql.startsWith('select * from contacts')) {
     return [jsonDb.data.contacts];
   }
 
-  // 8. SELECT * FROM campaigns ORDER BY date DESC;
+  // 11. SELECT * FROM campaigns WHERE id = ?;
+  if (normalizedSql.startsWith('select * from campaigns where id = ?')) {
+    const id = params[0];
+    const filtered = jsonDb.data.campaigns.filter(c => c.id === id);
+    return [filtered];
+  }
+
+  // 12. SELECT * FROM campaigns WHERE status = 'Sending';
+  if (normalizedSql.startsWith('select * from campaigns where status = \'sending\'')) {
+    const filtered = jsonDb.data.campaigns.filter(c => c.status === 'Sending');
+    return [filtered];
+  }
+
+  // 13. SELECT * FROM campaigns WHERE status = 'Scheduled' AND scheduleDate <= ? ORDER BY scheduleDate ASC LIMIT 1;
+  if (normalizedSql.startsWith('select * from campaigns where status = \'scheduled\'')) {
+    const nowUtc = params[0];
+    const filtered = jsonDb.data.campaigns.filter(c => c.status === 'Scheduled' && c.scheduleDate <= nowUtc);
+    filtered.sort((a, b) => new Date(a.scheduleDate) - new Date(b.scheduleDate));
+    return [filtered];
+  }
+
+  // 14. SELECT * FROM campaigns ORDER BY date DESC;
   if (normalizedSql.startsWith('select * from campaigns')) {
     const campaigns = [...jsonDb.data.campaigns];
     campaigns.sort((a, b) => new Date(b.date) - new Date(a.date));
     return [campaigns];
   }
 
-  // 9. SELECT * FROM audit_logs WHERE deletedAt IS NULL ORDER BY date DESC;
+  // 15. SELECT * FROM audit_logs WHERE deletedAt IS NULL ORDER BY date DESC;
   if (normalizedSql.startsWith('select * from audit_logs where deletedat is null')) {
     const logs = jsonDb.data.audit_logs.filter(l => !l.deletedAt);
     logs.sort((a, b) => new Date(b.date) - new Date(a.date));
     return [logs];
   }
 
-  // 10. SELECT * FROM audit_logs WHERE deletedAt IS NOT NULL ORDER BY deletedAt DESC;
+  // 16. SELECT * FROM audit_logs WHERE deletedAt IS NOT NULL ORDER BY deletedAt DESC;
   if (normalizedSql.startsWith('select * from audit_logs where deletedat is not null')) {
     const logs = jsonDb.data.audit_logs.filter(l => !!l.deletedAt);
     logs.sort((a, b) => new Date(b.deletedAt) - new Date(a.deletedAt));
     return [logs];
   }
 
-  // 10b. SELECT * FROM audit_logs WHERE campaignId = ?;
+  // 17. SELECT * FROM audit_logs WHERE campaignId = ?;
   if (normalizedSql.startsWith('select * from audit_logs where campaignid = ?')) {
     const campaignId = params[0];
     const logs = jsonDb.data.audit_logs.filter(l => l.campaignId === campaignId);
     return [logs];
   }
 
-  // 11. DELETE FROM campaigns WHERE id = ?;
-  if (normalizedSql.startsWith('delete from campaigns where id = ?')) {
-    const id = params[0];
-    jsonDb.data.campaigns = jsonDb.data.campaigns.filter(c => c.id !== id);
-    // jsonDb.data.recipients = jsonDb.data.recipients.filter(r => r.campaignId !== id);
-    // jsonDb.data.audit_logs = jsonDb.data.audit_logs.filter(a => a.campaignId !== id);
+  // 18. SELECT * FROM recipients WHERE campaignId = ? ORDER BY id ASC;
+  if (normalizedSql.startsWith('select * from recipients where campaignid = ?')) {
+    const campaignId = params[0];
+    const filtered = jsonDb.data.recipients.filter(r => r.campaignId === campaignId);
+    return [filtered];
+  }
+
+  // 19. INSERT INTO campaigns ...
+  if (normalizedSql.startsWith('insert into campaigns')) {
+    const [id, name, subject, body, status, date, creator, recipientsCount, smtpUsed, scheduleDate] = params;
+    jsonDb.data.campaigns.push({
+      id, name, subject, body, status, date, creator,
+      recipientsCount: parseInt(recipientsCount) || 0,
+      sentCount: 0, failedCount: 0, smtpUsed: smtpUsed || 'default', sendTime: null, completionTime: null, scheduleDate
+    });
     jsonDb.write();
     return [{ affectedRows: 1 }];
   }
 
-  // 12. DELETE FROM recipients WHERE campaignId = ?;
+  // 20. UPDATE campaigns SET ...
+  if (normalizedSql.startsWith('update campaigns set')) {
+    let campaignId = null;
+    if (normalizedSql.includes('status = \'draft\', scheduledate = null')) {
+      campaignId = params[0];
+      const campaign = jsonDb.data.campaigns.find(c => c.id === campaignId);
+      if (campaign) {
+        campaign.status = 'Draft';
+        campaign.scheduleDate = null;
+      }
+    } else if (normalizedSql.includes('scheduledate = ?')) {
+      const [scheduleDate, id] = params;
+      campaignId = id;
+      const campaign = jsonDb.data.campaigns.find(c => c.id === campaignId);
+      if (campaign) {
+        campaign.scheduleDate = scheduleDate;
+      }
+    } else if (normalizedSql.includes('status = "completed", sentcount = ?, failedcount = ?, completiontime = ?')) {
+      const [sentCount, failedCount, completionTime, id] = params;
+      campaignId = id;
+      const campaign = jsonDb.data.campaigns.find(c => c.id === campaignId);
+      if (campaign) {
+        campaign.status = 'Completed';
+        campaign.sentCount = parseInt(sentCount) || 0;
+        campaign.failedCount = parseInt(failedCount) || 0;
+        campaign.completionTime = completionTime;
+      }
+    } else if (normalizedSql.includes('status = \'completed\', completiontime = ?')) {
+      const [completionTime, id] = params;
+      campaignId = id;
+      const campaign = jsonDb.data.campaigns.find(c => c.id === campaignId);
+      if (campaign) {
+        campaign.status = 'Completed';
+        campaign.completionTime = completionTime;
+      }
+    } else if (normalizedSql.includes('sentcount = ?, failedcount = ?')) {
+      const [sentCount, failedCount, id] = params;
+      campaignId = id;
+      const campaign = jsonDb.data.campaigns.find(c => c.id === campaignId);
+      if (campaign) {
+        campaign.sentCount = parseInt(sentCount) || 0;
+        campaign.failedCount = parseInt(failedCount) || 0;
+      }
+    } else if (normalizedSql.includes('status = "sending"')) {
+      const [recipientsCount, smtpUsed, sendTime, id] = params;
+      campaignId = id;
+      const campaign = jsonDb.data.campaigns.find(c => c.id === campaignId);
+      if (campaign) {
+        campaign.status = 'Sending';
+        campaign.sentCount = 0;
+        campaign.failedCount = 0;
+        campaign.recipientsCount = parseInt(recipientsCount) || 0;
+        campaign.smtpUsed = smtpUsed;
+        campaign.sendTime = sendTime;
+      }
+    } else if (normalizedSql.includes('sentcount = 0, failedcount = 0, status = "draft"')) {
+      campaignId = params[0];
+      const campaign = jsonDb.data.campaigns.find(c => c.id === campaignId);
+      if (campaign) {
+        campaign.sentCount = 0;
+        campaign.failedCount = 0;
+        campaign.status = 'Draft';
+        campaign.smtpUsed = null;
+        campaign.sendTime = null;
+        campaign.completionTime = null;
+      }
+    }
+    jsonDb.write();
+    return [{ affectedRows: 1 }];
+  }
+
+  // 21. DELETE FROM campaigns WHERE id = ?;
+  if (normalizedSql.startsWith('delete from campaigns where id = ?')) {
+    const id = params[0];
+    jsonDb.data.campaigns = jsonDb.data.campaigns.filter(c => c.id !== id);
+    jsonDb.write();
+    return [{ affectedRows: 1 }];
+  }
+
+  // 22. DELETE FROM recipients WHERE campaignId = ?;
   if (normalizedSql.startsWith('delete from recipients where campaignid = ?')) {
     const campaignId = params[0];
     jsonDb.data.recipients = jsonDb.data.recipients.filter(r => r.campaignId !== campaignId);
@@ -281,17 +411,25 @@ function executeJsonQuery(jsonDb, sql, params = []) {
     return [{ affectedRows: 1 }];
   }
 
-  // 13. UPDATE settings SET host = ? ... WHERE id = 1;
+  // 23. UPDATE settings SET host = ? ... WHERE id = 1; (Fixing the 11 vs 12 param shifting bug!)
   if (normalizedSql.startsWith('update settings set')) {
-    const [host, port, username, password, encryption, senderEmail, senderName, emailsPerHour, emailsPerDay, delaySeconds, connectionTimeout, retryAttempts] = params;
-    jsonDb.data.settings[0] = {
-      id: 1, host, port, username, password, encryption, senderEmail, senderName, emailsPerHour, emailsPerDay, delaySeconds, connectionTimeout, retryAttempts
-    };
+    if (params.length === 11) {
+      const [host, port, username, encryption, senderEmail, senderName, emailsPerHour, emailsPerDay, delaySeconds, connectionTimeout, retryAttempts] = params;
+      const currentPassword = jsonDb.data.settings[0]?.password || '';
+      jsonDb.data.settings[0] = {
+        id: 1, host, port, username, password: currentPassword, encryption, senderEmail, senderName, emailsPerHour, emailsPerDay, delaySeconds, connectionTimeout, retryAttempts
+      };
+    } else {
+      const [host, port, username, password, encryption, senderEmail, senderName, emailsPerHour, emailsPerDay, delaySeconds, connectionTimeout, retryAttempts] = params;
+      jsonDb.data.settings[0] = {
+        id: 1, host, port, username, password, encryption, senderEmail, senderName, emailsPerHour, emailsPerDay, delaySeconds, connectionTimeout, retryAttempts
+      };
+    }
     jsonDb.write();
     return [{ affectedRows: 1 }];
   }
 
-  // 14. INSERT INTO audit_logs (id, date, user, action, status...) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+  // 24. INSERT INTO audit_logs ...
   if (normalizedSql.startsWith('insert into audit_logs')) {
     if (params.length === 5) {
       const [id, date, user, action, status] = params;
@@ -324,7 +462,7 @@ function executeJsonQuery(jsonDb, sql, params = []) {
     return [{ affectedRows: 1 }];
   }
 
-  // 15. DELETE FROM audit_logs WHERE id = ?
+  // 25. DELETE FROM audit_logs ...
   if (normalizedSql.startsWith('delete from audit_logs where id = ?')) {
     const id = params[0];
     jsonDb.data.audit_logs = jsonDb.data.audit_logs.filter(a => a.id !== id);
@@ -332,7 +470,6 @@ function executeJsonQuery(jsonDb, sql, params = []) {
     return [{ affectedRows: 1 }];
   }
 
-  // 16. DELETE FROM audit_logs WHERE campaignId = ?
   if (normalizedSql.startsWith('delete from audit_logs where campaignid = ?')) {
     const campaignId = params[0];
     jsonDb.data.audit_logs = jsonDb.data.audit_logs.filter(a => a.campaignId !== campaignId);
@@ -340,7 +477,7 @@ function executeJsonQuery(jsonDb, sql, params = []) {
     return [{ affectedRows: 1 }];
   }
 
-  // 17. UPDATE audit_logs SET deletedAt = ? WHERE id = ?
+  // 26. UPDATE audit_logs ...
   if (normalizedSql.startsWith('update audit_logs set deletedat = ? where id = ?')) {
     const [deletedAt, id] = params;
     const log = jsonDb.data.audit_logs.find(a => a.id === id);
@@ -351,7 +488,6 @@ function executeJsonQuery(jsonDb, sql, params = []) {
     return [{ affectedRows: 1 }];
   }
 
-  // 18. UPDATE audit_logs SET deletedAt = NULL WHERE id = ?
   if (normalizedSql.startsWith('update audit_logs set deletedat = null where id = ?')) {
     const id = params[0];
     const log = jsonDb.data.audit_logs.find(a => a.id === id);
@@ -362,7 +498,7 @@ function executeJsonQuery(jsonDb, sql, params = []) {
     return [{ affectedRows: 1 }];
   }
 
-  // 19. INSERT INTO users (id, name, email, role, status, avatar) VALUES (?, ?, ?, ?, ?, ?);
+  // 27. INSERT INTO users ...
   if (normalizedSql.startsWith('insert into users')) {
     const [id, name, email, role, status, avatar] = params;
     jsonDb.data.users.push({ id, name, email, role, status, avatar });
@@ -370,7 +506,7 @@ function executeJsonQuery(jsonDb, sql, params = []) {
     return [{ affectedRows: 1 }];
   }
 
-  // 20. UPDATE users SET name = ?, email = ?, role = ? WHERE id = ?;
+  // 28. UPDATE users ...
   if (normalizedSql.startsWith('update users set name = ?')) {
     const [name, email, role, id] = params;
     const user = jsonDb.data.users.find(u => u.id === id);
@@ -383,7 +519,6 @@ function executeJsonQuery(jsonDb, sql, params = []) {
     return [{ affectedRows: 1 }];
   }
 
-  // 21. UPDATE users SET status = ? WHERE id = ?;
   if (normalizedSql.startsWith('update users set status = ?')) {
     const [status, id] = params;
     const user = jsonDb.data.users.find(u => u.id === id);
@@ -394,7 +529,7 @@ function executeJsonQuery(jsonDb, sql, params = []) {
     return [{ affectedRows: 1 }];
   }
 
-  // 22. DELETE FROM users WHERE id = ?;
+  // 29. DELETE FROM users ...
   if (normalizedSql.startsWith('delete from users where id = ?')) {
     const id = params[0];
     jsonDb.data.users = jsonDb.data.users.filter(u => u.id !== id);
@@ -402,7 +537,7 @@ function executeJsonQuery(jsonDb, sql, params = []) {
     return [{ affectedRows: 1 }];
   }
 
-  // 23. INSERT INTO recipients (campaignId, email, name, company, status, reason, sentAt) VALUES (?, ?, ?, ?, ?, ?, ?);
+  // 30. INSERT INTO recipients ...
   if (normalizedSql.startsWith('insert into recipients')) {
     const [campaignId, email, name, company, status, reason, sentAt] = params;
     jsonDb.data.recipients.push({
@@ -413,14 +548,133 @@ function executeJsonQuery(jsonDb, sql, params = []) {
     return [{ affectedRows: 1 }];
   }
 
-  // 24. SELECT * FROM templates
+  // 31. UPDATE recipients ...
+  if (normalizedSql.startsWith('update recipients set')) {
+    if (normalizedSql.includes('status = ?, reason = ?, sentat = ?')) {
+      const [status, reason, sentAt, id] = params;
+      const rec = jsonDb.data.recipients.find(r => r.id === parseInt(id));
+      if (rec) {
+        rec.status = status;
+        rec.reason = reason;
+        rec.sentAt = sentAt;
+      }
+    } else if (normalizedSql.includes('status = \'opened\'')) {
+      const [openedAt, sentAt, id] = params;
+      const rec = jsonDb.data.recipients.find(r => r.id === parseInt(id));
+      if (rec && rec.status === 'Sent') {
+        rec.status = 'Opened';
+        rec.openedAt = openedAt;
+        rec.sentAt = sentAt;
+      }
+    } else if (normalizedSql.includes('status = \'clicked\'')) {
+      const [clickedAt, sentAt, id] = params;
+      const rec = jsonDb.data.recipients.find(r => r.id === parseInt(id));
+      if (rec) {
+        rec.status = 'Clicked';
+        rec.clickedAt = clickedAt;
+        rec.sentAt = sentAt;
+      }
+    } else if (normalizedSql.includes('followupstep = ?')) {
+      const [followupStep, id] = params;
+      const rec = jsonDb.data.recipients.find(r => r.id === parseInt(id));
+      if (rec) {
+        rec.followupStep = parseInt(followupStep) || 0;
+      }
+    }
+    jsonDb.write();
+    return [{ affectedRows: 1 }];
+  }
+
+  // 32. UPDATE contacts ...
+  if (normalizedSql.startsWith('update contacts set')) {
+    if (normalizedSql.includes('name = ?, company = ?')) {
+      const [name, company, id] = params;
+      const contact = jsonDb.data.contacts.find(c => c.id === id);
+      if (contact) {
+        contact.name = name;
+        contact.company = company;
+      }
+    } else if (normalizedSql.includes('status = \'unsubscribed\'')) {
+      const id = params[0];
+      const contact = jsonDb.data.contacts.find(c => c.id === id);
+      if (contact) {
+        contact.status = 'Unsubscribed';
+      }
+    }
+    jsonDb.write();
+    return [{ affectedRows: 1 }];
+  }
+
+  // 33. INSERT INTO contacts ...
+  if (normalizedSql.startsWith('insert into contacts')) {
+    const [id, email, name, company, unsubscribe_token] = params;
+    jsonDb.data.contacts.push({
+      id, email, name, company, status: 'Subscribed', unsubscribe_token, created_at: new Date().toISOString()
+    });
+    jsonDb.write();
+    return [{ affectedRows: 1 }];
+  }
+
+  // 34. INSERT INTO smtp_configs ...
+  if (normalizedSql.startsWith('insert into smtp_configs')) {
+    const [id, name, host, port, username, password, encryption, sender_email, sender_name, is_active] = params;
+    jsonDb.data.smtp_configs.push({
+      id, name, host, port: parseInt(port) || 587, username, password, encryption, sender_email, sender_name, is_active: parseInt(is_active) || 0
+    });
+    jsonDb.write();
+    return [{ affectedRows: 1 }];
+  }
+
+  // 35. UPDATE smtp_configs ...
+  if (normalizedSql.startsWith('update smtp_configs set')) {
+    if (params.length === 9) {
+      const [name, host, port, username, encryption, sender_email, sender_name, is_active, id] = params;
+      const cfg = jsonDb.data.smtp_configs.find(c => c.id === id);
+      if (cfg) {
+        cfg.name = name;
+        cfg.host = host;
+        cfg.port = parseInt(port) || 587;
+        cfg.username = username;
+        cfg.encryption = encryption;
+        cfg.sender_email = sender_email;
+        cfg.sender_name = sender_name;
+        cfg.is_active = parseInt(is_active) || 0;
+      }
+    } else {
+      const [name, host, port, username, password, encryption, sender_email, sender_name, is_active, id] = params;
+      const cfg = jsonDb.data.smtp_configs.find(c => c.id === id);
+      if (cfg) {
+        cfg.name = name;
+        cfg.host = host;
+        cfg.port = parseInt(port) || 587;
+        cfg.username = username;
+        cfg.password = password;
+        cfg.encryption = encryption;
+        cfg.sender_email = sender_email;
+        cfg.sender_name = sender_name;
+        cfg.is_active = parseInt(is_active) || 0;
+      }
+    }
+    jsonDb.write();
+    return [{ affectedRows: 1 }];
+  }
+
+  // 36. DELETE FROM smtp_configs WHERE id = ?;
+  if (normalizedSql.startsWith('delete from smtp_configs')) {
+    const id = params[0];
+    jsonDb.data.smtp_configs = jsonDb.data.smtp_configs.filter(c => c.id !== id);
+    jsonDb.write();
+    return [{ affectedRows: 1 }];
+  }
+
+  // 37. SELECT * FROM templates
   if (normalizedSql.startsWith('select * from templates')) {
     const list = [...(jsonDb.data.templates || [])];
     list.sort((a, b) => new Date(b.date) - new Date(a.date));
     return [list];
   }
 
-  // 25. INSERT INTO templates
+  // 38. INSERT INTO templates
   if (normalizedSql.startsWith('insert into templates')) {
     const [id, name, subject, body, date] = params;
     if (!jsonDb.data.templates) {
@@ -432,7 +686,7 @@ function executeJsonQuery(jsonDb, sql, params = []) {
     return [{ affectedRows: 1 }];
   }
 
-  // 26. UPDATE templates SET
+  // 39. UPDATE templates SET
   if (normalizedSql.startsWith('update templates set')) {
     const [name, subject, body, date, id] = params;
     const tpl = jsonDb.data.templates.find(t => t.id === id);
@@ -446,7 +700,7 @@ function executeJsonQuery(jsonDb, sql, params = []) {
     return [{ affectedRows: 1 }];
   }
 
-  // 27. DELETE FROM templates WHERE id = ?
+  // 40. DELETE FROM templates WHERE id = ?
   if (normalizedSql.startsWith('delete from templates where id = ?')) {
     const id = params[0];
     jsonDb.data.templates = jsonDb.data.templates.filter(t => t.id !== id);
