@@ -40,6 +40,7 @@ export const Settings = () => {
   const [provider, setProvider] = useState(() => {
     if (settings.smtp.host === 'smtp.sendgrid.net' && settings.smtp.username === 'apikey') return 'sendgrid';
     if (settings.smtp.host && settings.smtp.host.includes('resend')) return 'resend';
+    if (settings.smtp.host && settings.smtp.host.includes('brevo')) return 'brevo';
     if (settings.smtp.host === 'smtp.mailgun.org') return 'mailgun';
     if (settings.smtp.host && settings.smtp.host.includes('.amazonaws.com')) return 'ses';
     return 'smtp';
@@ -71,6 +72,14 @@ export const Settings = () => {
         host: 'smtp.resend.com',
         port: '587',
         username: 'resend',
+        encryption: 'TLS'
+      }));
+    } else if (prov === 'brevo') {
+      setSmtp(prev => ({
+        ...prev,
+        host: 'smtp-relay.brevo.com',
+        port: '2525',
+        username: '',
         encryption: 'TLS'
       }));
     } else if (prov === 'mailgun') {
@@ -115,6 +124,8 @@ export const Settings = () => {
         return 'SendGrid API Key';
       case 'resend':
         return 'Resend API Key';
+      case 'brevo':
+        return 'Brevo SMTP Key (xsmtpsib-...)';
       case 'mailgun':
         return 'Mailgun SMTP Password';
       case 'ses':
@@ -440,6 +451,7 @@ export const Settings = () => {
                 className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-650 font-semibold"
               >
                 <option value="smtp">Standard Custom SMTP Server</option>
+                <option value="brevo">Brevo SMTP Relay (Port 2525 Bypass)</option>
                 <option value="resend">Resend API / SMTP Gateway</option>
                 <option value="sendgrid">SendGrid API / SMTP Gateway</option>
                 <option value="mailgun">Mailgun API / SMTP Gateway</option>
@@ -465,9 +477,14 @@ export const Settings = () => {
             )}
           </div>
 
-          {provider === 'smtp' && (
+          {(provider === 'smtp' || provider === 'brevo') && (
             <div className="bg-amber-50 border border-amber-200 text-amber-800 text-[11px] p-3 rounded-lg mt-2 mb-4 leading-normal">
-              <strong>⚠️ Cloud Provider Outbound Port Blocks Notice:</strong> Standard SMTP ports (25, 465, 587) are blocked by cloud platforms like Render. Standard custom SMTP servers (e.g. Gmail SMTP) will fail to connect/timeout in production. If hosted on Render, you must select <strong>Resend</strong> or <strong>SendGrid</strong> from the gateway list above, which routes email transmissions over HTTP (port 443).
+              <strong>⚠️ Outbound SMTP Port Blocking Notice:</strong> Standard SMTP ports (25, 465, 587) are blocked by cloud hosts like Render's free tier. 
+              {provider === 'brevo' ? (
+                <span> Fortunately, <strong>Brevo</strong> supports SMTP on port <strong>2525</strong>, which is not blocked by Render and will work directly!</span>
+              ) : (
+                <span> Standard setups (such as Gmail App Passwords) will timeout in production. To bypass this, you can select the <strong>Brevo SMTP Relay</strong> option above (routes on port 2525), or use HTTP-based gateways like <strong>Resend</strong> or <strong>SendGrid</strong>.</span>
+              )}
             </div>
           )}
 
