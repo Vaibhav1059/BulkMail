@@ -104,6 +104,9 @@ function requireRole(role) {
 
 // Global API Interceptor for authentication
 app.use((req, res, next) => {
+  // Normalize path to prevent double slashes (e.g. /api//auth/login) or trailing slashes (e.g. /api/auth/login/)
+  const normalizedPath = req.path.replace(/\/+/g, '/').replace(/\/$/, '') || '/';
+
   const publicPaths = [
     '/health',
     '/api/auth/login',
@@ -112,9 +115,9 @@ app.use((req, res, next) => {
     '/api/unsubscribe/confirm'
   ];
   
-  const isPublic = publicPaths.includes(req.path) || 
-                   req.path.startsWith('/api/tracker/open/') || 
-                   req.path.startsWith('/api/unsubscribe/');
+  const isPublic = publicPaths.includes(normalizedPath) || 
+                   normalizedPath.startsWith('/api/tracker/open/') || 
+                   normalizedPath.startsWith('/api/unsubscribe/');
                    
   if (isPublic) {
     return next();
