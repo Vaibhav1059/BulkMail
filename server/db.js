@@ -44,7 +44,9 @@ class JSONDb {
         this.write();
       }
 
-      // Seed the default administrator user if the local JSON database is empty
+      let dataChanged = false;
+
+      // Seed the default administrator user if empty
       if (!this.data.users || this.data.users.length === 0) {
         this.data.users = [{
           id: '1',
@@ -55,9 +57,127 @@ class JSONDb {
           status: 'Active',
           avatar: '/male_boy_avatar.png'
         }];
-        this.write();
+        dataChanged = true;
         console.log('Seeded default admin user to local JSON database fallback.');
       }
+
+      // Seed default templates if empty
+      if (!this.data.templates || this.data.templates.length === 0) {
+        this.data.templates = [
+          {
+            id: 't1',
+            name: 'Monthly Product Newsletter',
+            subject: 'Newsletter: Latest updates from {{company}}',
+            body: 'Hi {{name}},\n\nHere are the top stories this month from {{company}}:\n\n1. Product Automations are now live.\n2. Security parameters have been updated.\n\nEnjoy the reads!\n\nBest,\nThe Newsletter Team',
+            date: new Date().toISOString()
+          },
+          {
+            id: 't2',
+            name: 'Welcome Onboarding Mailer',
+            subject: 'Welcome to AeroSend, {{name}}!',
+            body: 'Hello {{name}},\n\nThank you for setting up your account under {{email}}. We are excited to support your journey.\n\nLet us know if you need help.\n\nRegards,\nCustomer Success',
+            date: new Date().toISOString()
+          },
+          {
+            id: 't3',
+            name: 'Exclusive Promo Discount',
+            subject: 'Exclusive deal for {{name}}',
+            body: 'Hey {{name}},\n\nWe have generated a custom coupon for {{company}} employees. Use code AEROSEND20 to get 20% off your active subscription.\n\nAct fast!\nSales Team',
+            date: new Date().toISOString()
+          }
+        ];
+        dataChanged = true;
+        console.log('Seeded default templates to local JSON database fallback.');
+      }
+
+      // Seed default campaigns if empty
+      if (!this.data.campaigns || this.data.campaigns.length === 0) {
+        this.data.campaigns = [
+          {
+            id: 'c1',
+            name: 'Q3 Product Newsletter Launch',
+            subject: 'Introducing our new automation workflow Builder! 🚀',
+            body: 'Hi {{name}},\n\nWe are thrilled to present our brand new automation workflow features. As a valued employee at {{company}}, you get exclusive early access!\n\nBest,\nThe Team',
+            recipientsCount: 1450,
+            sentCount: 1450,
+            failedCount: 0,
+            status: 'Completed',
+            date: new Date(Date.now() - 5*24*60*60*1000).toISOString(),
+            creator: 'Marcus Chen',
+            smtpUsed: 'smtp.sendgrid.net',
+            sendTime: new Date(Date.now() - 5*24*60*60*1000 - 30*60*1000).toISOString(),
+            completionTime: new Date(Date.now() - 5*24*60*60*1000).toISOString()
+          },
+          {
+            id: 'c2',
+            name: 'Customer Re-engagement Campaign',
+            subject: 'We miss you, {{name}}! Here is 50% off.',
+            body: 'Hey {{name}},\n\nIt has been a while since you logged in. Check out the latest updates at {{company}} and enjoy 50% off your next billing cycle.\n\nCheers,\nGrowth Team',
+            recipientsCount: 840,
+            sentCount: 832,
+            failedCount: 8,
+            status: 'Completed',
+            date: new Date(Date.now() - 2*24*60*60*1000).toISOString(),
+            creator: 'Alexander Wright',
+            smtpUsed: 'smtp.sendgrid.net',
+            sendTime: new Date(Date.now() - 2*24*60*60*1000 - 20*60*1000).toISOString(),
+            completionTime: new Date(Date.now() - 2*24*60*60*1000).toISOString()
+          }
+        ];
+        dataChanged = true;
+        console.log('Seeded default campaigns to local JSON database fallback.');
+      }
+
+      // Seed default recipients if empty
+      if (!this.data.recipients || this.data.recipients.length === 0) {
+        this.data.recipients = [
+          { id: 1, campaignId: 'c2', email: 'jane.smith@stripe.com', name: 'Jane Smith', company: 'Stripe Inc', status: 'Sent', reason: '', sentAt: new Date(Date.now() - 2*24*60*60*1000 - 15*60*1000).toISOString() },
+          { id: 2, campaignId: 'c2', email: 'bob.johnson@netflix.com', name: 'Bob Johnson', company: 'Netflix', status: 'Failed', reason: 'SMTP delivery timeout/bounce', sentAt: new Date(Date.now() - 2*24*60*60*1000 - 10*60*1000).toISOString() }
+        ];
+        dataChanged = true;
+      }
+
+      // Seed default audit logs if empty
+      if (!this.data.audit_logs || this.data.audit_logs.length === 0) {
+        this.data.audit_logs = [
+          {
+            id: 'l1',
+            date: new Date().toISOString(),
+            user: 'Alexander Wright',
+            action: 'Database schema successfully synchronized with upgraded constraints',
+            status: 'Success',
+            campaignId: null,
+            campaignName: null,
+            subject: null,
+            senderEmail: null,
+            recipientCount: 0,
+            deliveryStatus: null,
+            openStatus: 'Not Opened',
+            failureDetails: null
+          },
+          {
+            id: 'l2',
+            date: new Date(Date.now() - 2*24*60*60*1000).toISOString(),
+            user: 'Alexander Wright',
+            action: 'Campaign "Customer Re-engagement Campaign" finished sending. (832 Sent, 8 Failed)',
+            status: 'Warning',
+            campaignId: 'c2',
+            campaignName: 'Customer Re-engagement Campaign',
+            subject: 'We miss you, {{name}}! Here is 50% off.',
+            senderEmail: 'campaigns@enterprise.com',
+            recipientCount: 840,
+            deliveryStatus: 'Completed with Warnings',
+            openStatus: 'Not Opened',
+            failureDetails: '8 email(s) bounced or failed.'
+          }
+        ];
+        dataChanged = true;
+      }
+
+      if (dataChanged) {
+        this.write();
+      }
+
     } catch (err) {
       console.error('Error reading JSON DB file:', err);
     }
