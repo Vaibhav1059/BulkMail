@@ -1,6 +1,7 @@
 import mysql from 'mysql2/promise';
 import fs from 'fs';
 import path from 'path';
+import bcrypt from 'bcryptjs';
 
 class JSONDb {
   constructor(filePath) {
@@ -41,6 +42,21 @@ class JSONDb {
         this.data = JSON.parse(fileContent);
       } else {
         this.write();
+      }
+
+      // Seed the default administrator user if the local JSON database is empty
+      if (!this.data.users || this.data.users.length === 0) {
+        this.data.users = [{
+          id: '1',
+          name: 'Vaibhav Soni',
+          email: 'vaibhavsoni1059@gmail.com',
+          password: bcrypt.hashSync('admin123', 10),
+          role: 'Admin',
+          status: 'Active',
+          avatar: '/male_boy_avatar.png'
+        }];
+        this.write();
+        console.log('Seeded default admin user to local JSON database fallback.');
       }
     } catch (err) {
       console.error('Error reading JSON DB file:', err);
