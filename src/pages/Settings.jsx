@@ -39,6 +39,7 @@ export const Settings = () => {
 
   const [provider, setProvider] = useState(() => {
     if (settings.smtp.host === 'smtp.sendgrid.net' && settings.smtp.username === 'apikey') return 'sendgrid';
+    if (settings.smtp.host && settings.smtp.host.includes('resend')) return 'resend';
     if (settings.smtp.host === 'smtp.mailgun.org') return 'mailgun';
     if (settings.smtp.host && settings.smtp.host.includes('.amazonaws.com')) return 'ses';
     return 'smtp';
@@ -62,6 +63,14 @@ export const Settings = () => {
         host: 'smtp.sendgrid.net',
         port: '587',
         username: 'apikey',
+        encryption: 'TLS'
+      }));
+    } else if (prov === 'resend') {
+      setSmtp(prev => ({
+        ...prev,
+        host: 'smtp.resend.com',
+        port: '587',
+        username: 'resend',
         encryption: 'TLS'
       }));
     } else if (prov === 'mailgun') {
@@ -104,6 +113,8 @@ export const Settings = () => {
     switch (provider) {
       case 'sendgrid':
         return 'SendGrid API Key';
+      case 'resend':
+        return 'Resend API Key';
       case 'mailgun':
         return 'Mailgun SMTP Password';
       case 'ses':
@@ -429,6 +440,7 @@ export const Settings = () => {
                 className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-650 font-semibold"
               >
                 <option value="smtp">Standard Custom SMTP Server</option>
+                <option value="resend">Resend API / SMTP Gateway</option>
                 <option value="sendgrid">SendGrid API / SMTP Gateway</option>
                 <option value="mailgun">Mailgun API / SMTP Gateway</option>
                 <option value="ses">Amazon SES API / SMTP Gateway</option>
@@ -452,6 +464,12 @@ export const Settings = () => {
               </div>
             )}
           </div>
+
+          {provider === 'smtp' && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 text-[11px] p-3 rounded-lg mt-2 mb-4 leading-normal">
+              <strong>⚠️ Cloud Provider Outbound Port Blocks Notice:</strong> Standard SMTP ports (25, 465, 587) are blocked by cloud platforms like Render. Standard custom SMTP servers (e.g. Gmail SMTP) will fail to connect/timeout in production. If hosted on Render, you must select <strong>Resend</strong> or <strong>SendGrid</strong> from the gateway list above, which routes email transmissions over HTTP (port 443).
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
             {/* Host */}
@@ -486,15 +504,15 @@ export const Settings = () => {
 
             {/* Username */}
             <div className="space-y-1">
-              <label className="block text-[10px] font-bold text-slate-505 uppercase tracking-wider">Username</label>
+              <label className="block text-[10px] font-bold text-slate-550 uppercase tracking-wider">Username</label>
               <input
                 type="text"
                 name="username"
                 value={smtp.username}
                 onChange={handleSmtpChange}
-                placeholder={provider === 'sendgrid' ? 'apikey' : 'e.g. postmaster@yourdomain.com'}
+                placeholder={provider === 'sendgrid' ? 'apikey' : provider === 'resend' ? 'resend' : 'e.g. postmaster@yourdomain.com'}
                 className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-650 disabled:bg-slate-50 disabled:text-slate-450"
-                disabled={provider === 'sendgrid'}
+                disabled={provider === 'sendgrid' || provider === 'resend'}
                 required
               />
             </div>
