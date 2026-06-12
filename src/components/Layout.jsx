@@ -2,6 +2,7 @@ import { useState, useContext, useRef, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { AppContext } from '../context/AppContext';
+import { API_BASE, authFetch } from '../utils/api';
 import {
   LayoutDashboard,
   MailPlus,
@@ -81,17 +82,76 @@ export const Layout = ({ children }) => {
     }));
   };
 
-  const mockNotifications = [
-    { id: 1, text: 'Campaign "Q3 Newsletter" completed successfully.', time: '2 hrs ago', type: 'success', path: '/sending-monitor' },
-    { id: 2, text: 'SMTP server configuration validation passed.', time: '4 hrs ago', type: 'info', path: '/settings' },
-    { id: 3, text: 'Operator uploaded a new CSV file (320 entries).', time: '1 day ago', type: 'info', path: '/csv-upload' }
-  ];
+  const [notifications, setNotifications] = useState([]);
+  
+  useEffect(() => {
+    if (!token) return;
 
-  const visibleNotifications = mockNotifications.filter(n => !readIds.has(n.id));
+    const fetchNotifications = async () => {
+      try {
+        const res = await authFetch(`${API_BASE}/logs`);
+        if (res.ok) {
+          const logs = await res.json();
+          // Filter logs to show only important ones in notifications dropdown
+          const importantLogs = logs
+            .filter(log => {
+              const act = log.action.toLowerCase();
+              return act.includes('completed') || 
+                     act.includes('finished') || 
+                     act.includes('created campaign') || 
+                     act.includes('deleted campaign') || 
+                     act.includes('updated smtp') ||
+                     act.includes('error') || 
+                     act.includes('warning') ||
+                     log.status === 'Warning' ||
+                     log.status === 'Error';
+            })
+            .slice(0, 10) // Only keep latest 10
+            .map(log => {
+              // Calculate relative time
+              const elapsed = Date.now() - new Date(log.date).getTime();
+              let timeStr = 'Just now';
+              if (elapsed > 24 * 3600 * 1000) {
+                timeStr = `${Math.floor(elapsed / (24 * 3600 * 1000))}d ago`;
+              } else if (elapsed > 3600 * 1000) {
+                timeStr = `${Math.floor(elapsed / (3600 * 1000))}h ago`;
+              } else if (elapsed > 60 * 1000) {
+                timeStr = `${Math.floor(elapsed / (60 * 1000))}m ago`;
+              }
+              
+              let path = '/audit-logs';
+              const act = log.action.toLowerCase();
+              if (act.includes('campaign')) {
+                path = '/sending-monitor';
+              } else if (act.includes('smtp') || act.includes('settings')) {
+                path = '/settings';
+              }
+              
+              return {
+                id: log.id,
+                text: log.action,
+                time: timeStr,
+                type: log.status === 'Success' ? 'success' : 'info',
+                path
+              };
+            });
+          setNotifications(importantLogs);
+        }
+      } catch (err) {
+        console.error('Failed to load notifications:', err);
+      }
+    };
+
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 15000); // Refresh every 15s
+    return () => clearInterval(interval);
+  }, [token]);
+
+  const visibleNotifications = notifications.filter(n => !readIds.has(n.id));
   const unreadCount = visibleNotifications.length;
 
   const markAllRead = () => {
-    const allIds = new Set(mockNotifications.map(n => n.id));
+    const allIds = new Set(notifications.map(n => n.id));
     setReadIds(allIds);
     localStorage.setItem('notif_read_ids', JSON.stringify([...allIds]));
     setShowNotifications(false);
