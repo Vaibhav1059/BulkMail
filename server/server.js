@@ -358,16 +358,45 @@ app.post('/api/campaigns/:id/update-schedule', async (req, res) => {
   }
 });
 
+async function ensureSettingsRowExists() {
+  try {
+    const [rows] = await pool.query('SELECT id FROM settings WHERE id = 1;');
+    if (!rows || rows.length === 0) {
+      console.log('[Startup/Request] Settings row with id = 1 not found. Seeding default settings...');
+      await pool.query(`
+        INSERT INTO settings (
+          id, host, port, username, password, encryption, 
+          senderEmail, senderName, emailsPerHour, emailsPerDay, 
+          delaySeconds, connectionTimeout, retryAttempts
+        ) VALUES (
+          1, 'smtp.sendgrid.net', '587', 'apikey', 'SG.mock_api_key_value_example', 'TLS',
+          'campaigns@enterprise.com', 'Enterprise Bulk Mailer', 5000, 50000,
+          0.5, 10, 3
+        );
+      `);
+      console.log('[Startup/Request] Default settings row seeded successfully.');
+    } else {
+      console.log('[Startup/Request] Settings row with id = 1 verified successfully.');
+    }
+  } catch (err) {
+    console.warn('[Startup/Request Warning] Failed to verify/seed default settings row:', err.message);
+  }
+}
+
 app.get('/debug-settings', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT password FROM settings WHERE id = 1;');
+    await ensureSettingsRowExists();
+    const [rows] = await pool.query('SELECT * FROM settings;');
     const pass = rows[0] ? rows[0].password : null;
     res.json({
+      totalRows: rows.length,
+      firstRowExists: !!rows[0],
+      firstRowId: rows[0] ? rows[0].id : null,
       exists: !!pass,
       length: pass ? pass.length : 0,
       hasBullets1: pass ? pass.includes('•') : false,
       hasBullets2: pass ? pass.includes('●') : false,
-      prefix: pass ? pass.substring(0, 8) : '',
+      prefix: pass ? pass.substring(0, Math.min(8, pass.length)) : '',
       isMasked: pass ? isPasswordMasked(pass) : true
     });
   } catch (err) {
@@ -378,6 +407,7 @@ app.get('/debug-settings', async (req, res) => {
 // 4. Fetch SMTP Settings (with masked password for security)
 app.get('/api/settings', requireRole('Admin'), async (req, res) => {
   try {
+    await ensureSettingsRowExists();
     const [rows] = await pool.query('SELECT * FROM settings WHERE id = 1;');
     const config = rows[0] || {};
     if (config.password) {
@@ -393,7 +423,9 @@ app.get('/api/settings', requireRole('Admin'), async (req, res) => {
 app.post('/api/settings', requireRole('Admin'), async (req, res) => {
   const { host, port, username, password, encryption, senderEmail, senderName, emailsPerHour, emailsPerDay, delaySeconds, connectionTimeout, retryAttempts } = req.body;
   try {
+    await ensureSettingsRowExists();
     const isMasked = isPasswordMasked(password);
+    console.log(`[Settings Save Request] isMasked: ${isMasked}, password length: ${password ? password.length : 0}, host: ${host}`);
     if (isMasked) {
       // Retain existing password in database
       await pool.query(
@@ -2370,7 +2402,9 @@ setInterval(checkAndSendFollowups, 60 * 1000);
 setTimeout(checkAndSendFollowups, 5000);
 
 // Run startup recovery checks for any interrupted campaigns
-resumeInterruptedCampaigns();
+ensureSettingsRowExists().then(() => {
+  resumeInterruptedCampaigns();
+});
 
 // Serve static assets in production
 const __dirname = path.resolve();
