@@ -12,6 +12,12 @@ import rateLimit from 'express-rate-limit';
 function hashPassword(password) {
   return bcrypt.hashSync(password, 10);
 }
+function isPasswordMasked(password) {
+  if (!password) return true;
+  if (password === '••••••••') return true;
+  if (password.includes('•') || password.includes('●')) return true;
+  return /^[•*]+$/.test(password);
+}
 import path from 'path';
 import dotenv from 'dotenv';
 import pool from './db.js';
@@ -370,7 +376,7 @@ app.get('/api/settings', requireRole('Admin'), async (req, res) => {
 app.post('/api/settings', requireRole('Admin'), async (req, res) => {
   const { host, port, username, password, encryption, senderEmail, senderName, emailsPerHour, emailsPerDay, delaySeconds, connectionTimeout, retryAttempts } = req.body;
   try {
-    const isMasked = !password || /^[•*]+$/.test(password) || password === '••••••••';
+    const isMasked = isPasswordMasked(password);
     if (isMasked) {
       // Retain existing password in database
       await pool.query(
@@ -558,7 +564,7 @@ app.delete('/api/templates/:id', async (req, res) => {
 app.post('/api/settings/verify', async (req, res) => {
   let { host, port, username, password, encryption } = req.body;
   
-  const isMasked = !password || /^[•*]+$/.test(password) || password === '••••••••';
+  const isMasked = isPasswordMasked(password);
   if (isMasked) {
     const [rows] = await pool.query('SELECT password FROM settings WHERE id = 1;');
     if (rows[0] && rows[0].password) {
@@ -714,6 +720,11 @@ async function sendEmailViaConfig(smtpSettings, to, subject, html) {
   const host = (smtpSettings.host || '').toLowerCase();
   const isResend = host.includes('resend');
   const isSendGrid = host.includes('sendgrid');
+  const password = smtpSettings.password || '';
+
+  if (isPasswordMasked(password)) {
+    throw new Error('SMTP password is not configured or is invalid (contains bullet characters). Please go to Settings, re-enter your actual password/API key, and save.');
+  }
 
   if (isResend) {
     const apiKey = smtpSettings.password;
@@ -793,8 +804,11 @@ async function sendEmailViaConfig(smtpSettings, to, subject, html) {
   }
 }
 
-// Verify credentials via API ping or SMTP handshake
 async function verifyCredentials(host, port, username, password, encryption) {
+  if (isPasswordMasked(password)) {
+    throw new Error('SMTP password is not configured or is invalid (contains bullet characters). Please go to Settings, re-enter your actual password/API key, and save.');
+  }
+
   const hostLower = (host || '').toLowerCase();
   const isResend = hostLower.includes('resend');
   const isSendGrid = hostLower.includes('sendgrid');
@@ -2098,7 +2112,7 @@ app.put('/api/smtp-configs/:id', async (req, res) => {
   const { id } = req.params;
   const { name, host, port, username, password, encryption, sender_email, sender_name, is_active } = req.body;
   try {
-    const isMasked = !password || /^[•*]+$/.test(password) || password === '••••••••';
+    const isMasked = isPasswordMasked(password);
     if (isMasked) {
       await pool.query(
         `UPDATE smtp_configs SET name = ?, host = ?, port = ?, username = ?, encryption = ?, sender_email = ?, sender_name = ?, is_active = ?
@@ -2131,7 +2145,7 @@ app.delete('/api/smtp-configs/:id', async (req, res) => {
 app.post('/api/smtp-configs/verify', async (req, res) => {
   let { host, port, username, password, encryption } = req.body;
   
-  const isMasked = !password || /^[•*]+$/.test(password) || password === '••••••••';
+  const isMasked = isPasswordMasked(password);
   if (isMasked && req.body.id) {
     const [rows] = await pool.query('SELECT password FROM smtp_configs WHERE id = ?;', [req.body.id]);
     if (rows[0] && rows[0].password) {

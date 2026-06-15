@@ -1,4 +1,4 @@
-import { useState, useContext } from 'react';
+import { useState, useContext, useEffect } from 'react';
 import { AppContext } from '../context/AppContext';
 import { API_BASE, authFetch } from '../utils/api';
 import {
@@ -36,6 +36,32 @@ export const Settings = () => {
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState(null); // 'success' | 'error' | null
   const [isSaved, setIsSaved] = useState(false);
+
+  useEffect(() => {
+    if (settings && settings.smtp) {
+      setSmtp({ ...settings.smtp });
+      setLimits({ ...settings.limits });
+      setTimeouts({ ...settings.timeouts });
+      
+      const host = settings.smtp.host;
+      const username = settings.smtp.username;
+      if (host === 'smtp.sendgrid.net' && username === 'apikey') {
+        setProvider('sendgrid');
+      } else if (host && host.includes('resend')) {
+        setProvider('resend');
+      } else if (host && host.includes('brevo')) {
+        setProvider('brevo');
+      } else if (host === 'smtp.mailgun.org') {
+        setProvider('mailgun');
+      } else if (host && host.includes('.amazonaws.com')) {
+        setProvider('ses');
+        const match = host.match(/email-smtp\.(.*?)\.amazonaws\.com/);
+        if (match) setSesRegion(match[1]);
+      } else {
+        setProvider('smtp');
+      }
+    }
+  }, [settings]);
 
   const [provider, setProvider] = useState(() => {
     if (settings.smtp.host === 'smtp.sendgrid.net' && settings.smtp.username === 'apikey') return 'sendgrid';
