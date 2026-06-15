@@ -201,15 +201,19 @@ export const Settings = () => {
     }
   };
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
-    updateSettings({
-      smtp,
-      limits,
-      timeouts
-    });
-    setIsSaved(true);
-    setTimeout(() => setIsSaved(false), 3000);
+    try {
+      await updateSettings({
+        smtp,
+        limits,
+        timeouts
+      });
+      setIsSaved(true);
+      setTimeout(() => setIsSaved(false), 3000);
+    } catch (err) {
+      alert('Failed to save settings: ' + err.message);
+    }
   };
 
   if (activeTab === 'users' && currentUser?.role?.toLowerCase() === 'admin') {

@@ -491,13 +491,18 @@ export const AppProvider = ({ children }) => {
     };
 
     try {
-      await authFetch(`${API_BASE}/settings`, {
+      const res = await authFetch(`${API_BASE}/settings`, {
         method: 'POST',
         body: JSON.stringify(payload)
       });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Failed to save settings');
+      }
       await refreshData();
     } catch (err) {
       console.error(err);
+      throw err;
     }
   };
 
