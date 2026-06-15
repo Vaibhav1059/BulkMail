@@ -128,8 +128,7 @@ app.use((req, res, next) => {
     '/api/auth/login',
     '/api/auth/register',
     '/api/tracker/click',
-    '/api/unsubscribe/confirm',
-    '/api/campaigns/send-test'
+    '/api/unsubscribe/confirm'
   ];
   
   const isPublic = publicPaths.includes(normalizedPath) || 
