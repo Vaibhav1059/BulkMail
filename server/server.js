@@ -370,7 +370,8 @@ app.get('/api/settings', requireRole('Admin'), async (req, res) => {
 app.post('/api/settings', requireRole('Admin'), async (req, res) => {
   const { host, port, username, password, encryption, senderEmail, senderName, emailsPerHour, emailsPerDay, delaySeconds, connectionTimeout, retryAttempts } = req.body;
   try {
-    if (password === '••••••••') {
+    const isMasked = !password || /^[•*]+$/.test(password) || password === '••••••••';
+    if (isMasked) {
       // Retain existing password in database
       await pool.query(
         `UPDATE settings SET 
@@ -557,7 +558,8 @@ app.delete('/api/templates/:id', async (req, res) => {
 app.post('/api/settings/verify', async (req, res) => {
   let { host, port, username, password, encryption } = req.body;
   
-  if (password === '••••••••') {
+  const isMasked = !password || /^[•*]+$/.test(password) || password === '••••••••';
+  if (isMasked) {
     const [rows] = await pool.query('SELECT password FROM settings WHERE id = 1;');
     if (rows[0] && rows[0].password) {
       password = rows[0].password;
@@ -2096,7 +2098,8 @@ app.put('/api/smtp-configs/:id', async (req, res) => {
   const { id } = req.params;
   const { name, host, port, username, password, encryption, sender_email, sender_name, is_active } = req.body;
   try {
-    if (password === '••••••••') {
+    const isMasked = !password || /^[•*]+$/.test(password) || password === '••••••••';
+    if (isMasked) {
       await pool.query(
         `UPDATE smtp_configs SET name = ?, host = ?, port = ?, username = ?, encryption = ?, sender_email = ?, sender_name = ?, is_active = ?
          WHERE id = ?;`,
@@ -2128,7 +2131,8 @@ app.delete('/api/smtp-configs/:id', async (req, res) => {
 app.post('/api/smtp-configs/verify', async (req, res) => {
   let { host, port, username, password, encryption } = req.body;
   
-  if (password === '••••••••' && req.body.id) {
+  const isMasked = !password || /^[•*]+$/.test(password) || password === '••••••••';
+  if (isMasked && req.body.id) {
     const [rows] = await pool.query('SELECT password FROM smtp_configs WHERE id = ?;', [req.body.id]);
     if (rows[0] && rows[0].password) {
       password = rows[0].password;
