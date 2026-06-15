@@ -116,6 +116,11 @@ app.use((req, res, next) => {
   // Normalize path to prevent double slashes (e.g. /api//auth/login) or trailing slashes (e.g. /api/auth/login/)
   const normalizedPath = req.path.replace(/\/+/g, '/').replace(/\/$/, '') || '/';
 
+  // Allow non-API routes (frontend routes, assets) to bypass authentication check
+  if (!normalizedPath.startsWith('/api')) {
+    return next();
+  }
+
   const publicPaths = [
     '/health',
     '/api/auth/login',
