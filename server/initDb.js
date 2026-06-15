@@ -522,6 +522,15 @@ async function initPgDB(connectionString) {
   await client.connect();
   console.log('Connected to PostgreSQL. Running schema creation...');
 
+  // Wrap client.query to automatically escape reserved 'user' column keyword for Postgres
+  const originalQuery = client.query.bind(client);
+  client.query = (sql, params) => {
+    if (typeof sql === 'string') {
+      sql = sql.replace(/\buser\b/g, '"user"');
+    }
+    return originalQuery(sql, params);
+  };
+
   try {
     // 1. Create Settings table
     await client.query(`

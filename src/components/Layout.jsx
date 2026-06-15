@@ -6,14 +6,10 @@ import { API_BASE, authFetch } from '../utils/api';
 import {
   LayoutDashboard,
   MailPlus,
-  UploadCloud,
-  Activity,
-  BarChart3,
   FileText,
   Settings as SettingsIcon,
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
   Bell,
   CheckCircle2,
   Layers,
@@ -37,12 +33,7 @@ export const Layout = ({ children }) => {
   const bellRef = useRef(null);
   const [bellPos, setBellPos] = useState({ top: 0, right: 0 });
 
-  const [collapsedGroups, setCollapsedGroups] = useState({
-    campaigns: false,
-    audience: false,
-    templates: false,
-    system: false,
-  });
+
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -56,7 +47,6 @@ export const Layout = ({ children }) => {
 
   const profileName = currentUser?.name || 'Vaibhav Soni';
   const profileAvatar = currentUser?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&q=80';
-  const profileRole = currentUser?.role || 'Administrator';
 
   const navItems = [
     { name: 'Dashboard', path: '/', icon: LayoutDashboard },
@@ -71,12 +61,7 @@ export const Layout = ({ children }) => {
     return item ? item.name : 'Bulk Mail Platform';
   };
 
-  const toggleGroup = (groupId) => {
-    setCollapsedGroups(prev => ({
-      ...prev,
-      [groupId]: !prev[groupId]
-    }));
-  };
+
 
   const [notifications, setNotifications] = useState([]);
   

@@ -1,4 +1,4 @@
-import React, { useState, useContext, useEffect } from 'react';
+import { useState, useContext, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from '../context/AppContext';
 import { API_BASE, authFetch } from '../utils/api';
@@ -22,8 +22,7 @@ import {
   Copy,
   Laptop,
   Tablet as TabletIcon,
-  Smartphone,
-  ChevronRight
+  Smartphone
 } from 'lucide-react';
 import { FollowupSequenceBuilder } from '../components/FollowupSequenceBuilder';
 

@@ -757,7 +757,7 @@ if (!usePg) {
     await pool.query('SELECT 1;');
     console.log('Successfully connected to MySQL database.');
   } catch (err) {
-    console.warn('⚠️ Could not connect to MySQL database. Falling back to local JSON database storage.');
+    console.warn('⚠️ Could not connect to MySQL database. Falling back to local JSON database storage.', err.message);
     useFallback = true;
     const dbPath = path.join(process.cwd(), 'server', 'db.json');
     const dbExamplePath = path.join(process.cwd(), 'server', 'db.json.example');
@@ -829,7 +829,9 @@ const queryWrapper = {
     if (usePg) {
       // Convert MySQL '?' placeholders to PostgreSQL '$1', '$2', ...
       let index = 1;
-      const pgSql = sql.replace(/\?/g, () => `$${index++}`);
+      let pgSql = sql.replace(/\?/g, () => `$${index++}`);
+      // Escape the reserved 'user' column keyword for PostgreSQL
+      pgSql = pgSql.replace(/\buser\b/g, '"user"');
       
       const res = await pgPool.query(pgSql, params);
       

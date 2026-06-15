@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Trash2, ChevronDown, Mail, MousePointer, MessageSquare, Bell } from 'lucide-react';
+import { Plus, Trash2, ChevronDown, Bell } from 'lucide-react';
 
 const CONDITION_OPTIONS = [
   {

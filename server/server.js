@@ -1802,7 +1802,7 @@ async function checkAndSendFollowups() {
 
       // ── Build multi-condition WHERE clause ──────────────────────
       let conditionsList = ['not_opened'];
-      try { conditionsList = JSON.parse(seq.conditions || '["not_opened"]'); } catch {}
+      try { conditionsList = JSON.parse(seq.conditions || '["not_opened"]'); } catch { /* ignore parsing errors */ }
       const logic = (seq.condition_logic || 'AND').toUpperCase();
       const condClauses = conditionsList.map(c => `(${conditionToSQL(c)})`).join(` ${logic} `);
       const whereClause = `campaignId = ? AND (${condClauses}) AND followupStep < ?`;
@@ -1878,7 +1878,7 @@ app.get('/api/unsubscribe/:recipientId/:token', async (req, res) => {
   const { recipientId, token } = req.params;
 
   // Validate parameters to prevent Reflected XSS
-  const safeIdRegex = /^[a-zA-Z0-9_\-]+$/;
+  const safeIdRegex = /^[a-zA-Z0-9_-]+$/;
   if (!safeIdRegex.test(recipientId) || !safeIdRegex.test(token)) {
     return res.status(400).send('Invalid unsubscribe parameters.');
   }
@@ -2351,7 +2351,7 @@ if (fs.existsSync(path.join(__dirname, 'dist'))) {
 }
 
 // Global Error Handler Middleware
-app.use((err, req, res, next) => {
+app.use((err, req, res, _next) => {
   console.error('[Global Error Handler]:', err.stack || err.message || err);
   
   const status = err.status || 500;
