@@ -1,4 +1,8 @@
-export const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5000/api';
+export const API_BASE = import.meta.env.VITE_API_BASE || (
+  typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+    ? '/api'
+    : 'http://localhost:5000/api'
+);
 
 export const authFetch = async (url, options = {}) => {
   const token = localStorage.getItem('aerosend_token');
