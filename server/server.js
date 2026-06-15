@@ -358,6 +358,23 @@ app.post('/api/campaigns/:id/update-schedule', async (req, res) => {
   }
 });
 
+app.get('/debug-settings', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT password FROM settings WHERE id = 1;');
+    const pass = rows[0] ? rows[0].password : null;
+    res.json({
+      exists: !!pass,
+      length: pass ? pass.length : 0,
+      hasBullets1: pass ? pass.includes('•') : false,
+      hasBullets2: pass ? pass.includes('●') : false,
+      prefix: pass ? pass.substring(0, 8) : '',
+      isMasked: pass ? isPasswordMasked(pass) : true
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 4. Fetch SMTP Settings (with masked password for security)
 app.get('/api/settings', requireRole('Admin'), async (req, res) => {
   try {
