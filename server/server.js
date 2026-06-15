@@ -76,7 +76,9 @@ app.use(cors({
     if (!origin) return callback(null, true);
     const isLocalhost = origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:');
     const isAllowedFrontend = origin === (process.env.FRONTEND_URL || 'http://localhost:5173');
-    if (isLocalhost || isAllowedFrontend) {
+    const isRender = process.env.RENDER_EXTERNAL_HOSTNAME && origin.includes(process.env.RENDER_EXTERNAL_HOSTNAME);
+    const isRenderSubdomain = origin.includes('onrender.com');
+    if (isLocalhost || isAllowedFrontend || isRender || isRenderSubdomain) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
