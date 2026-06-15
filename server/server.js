@@ -21,7 +21,7 @@ import dns from 'dns/promises';
 dotenv.config();
 
 const app = express();
-const port = 5000;
+const port = process.env.PORT || 5000;
 
 // Security and Performance Middlewares
 app.set('trust proxy', 1);
@@ -72,7 +72,16 @@ const JWT_SECRET = process.env.JWT_SECRET || (
 );
 
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const isLocalhost = origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:');
+    const isAllowedFrontend = origin === (process.env.FRONTEND_URL || 'http://localhost:5173');
+    if (isLocalhost || isAllowedFrontend) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
 app.use(express.json());
@@ -2299,7 +2308,11 @@ setInterval(checkAndLaunchScheduledCampaigns, 10000);
 // Run database column modification migration safely
 async function runMigrations() {
   try {
-    await pool.query("ALTER TABLE followup_sequences MODIFY COLUMN delayDays DECIMAL(12,5) NOT NULL DEFAULT 3.00000;");
+    if (pool.isPg) {
+      await pool.query('ALTER TABLE followup_sequences ALTER COLUMN "delayDays" TYPE DECIMAL(12,5), ALTER COLUMN "delayDays" SET DEFAULT 3.00000;');
+    } else {
+      await pool.query("ALTER TABLE followup_sequences MODIFY COLUMN delayDays DECIMAL(12,5) NOT NULL DEFAULT 3.00000;");
+    }
     console.log("[Migration] Modified followup_sequences.delayDays column to DECIMAL(12,5).");
   } catch (err) {
     if (!err.message.includes("Table") && !err.message.includes("does not exist") && !err.message.includes("executeJsonQuery")) {
@@ -2316,6 +2329,26 @@ setTimeout(checkAndSendFollowups, 5000);
 
 // Run startup recovery checks for any interrupted campaigns
 resumeInterruptedCampaigns();
+
+// Serve static assets in production
+const __dirname = path.resolve();
+if (fs.existsSync(path.join(__dirname, 'dist'))) {
+  console.log('Serving production static assets from: dist');
+  app.use(express.static(path.join(__dirname, 'dist')));
+  app.use((req, res, next) => {
+    if (req.method === 'GET') {
+      const normalizedPath = req.path.replace(/\/+/g, '/').replace(/\/$/, '') || '/';
+      const isApiOrPublic = normalizedPath.startsWith('/api') || 
+                            normalizedPath === '/health' || 
+                            normalizedPath.startsWith('/api/tracker') || 
+                            normalizedPath.startsWith('/api/unsubscribe');
+      if (!isApiOrPublic) {
+        return res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+      }
+    }
+    next();
+  });
+}
 
 // Global Error Handler Middleware
 app.use((err, req, res, next) => {

@@ -1,4 +1,5 @@
 import mysql from 'mysql2/promise';
+import pg from 'pg';
 import fs from 'fs';
 import path from 'path';
 import bcrypt from 'bcryptjs';
@@ -714,45 +715,141 @@ function executeJsonQuery(jsonDb, sql, params = []) {
 let useFallback = false;
 let fallbackDb = null;
 let pool = null;
+let pgPool = null;
+let usePg = false;
 
-try {
-  pool = mysql.createPool({
-    host: '127.0.0.1',
-    user: 'root',
-    password: '',
-    database: 'aerosend_db',
-    port: 3306,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0
-  });
-
-  // Try to execute a test connection query
-  await pool.query('SELECT 1;');
-  console.log('Successfully connected to MySQL database on 127.0.0.1:3306.');
-} catch (err) {
-  console.warn('⚠️  Could not connect to MySQL database on 127.0.0.1:3306. Falling back to local JSON database storage.');
-  useFallback = true;
-  const dbPath = path.join(process.cwd(), 'server', 'db.json');
-  const dbExamplePath = path.join(process.cwd(), 'server', 'db.json.example');
-  if (!fs.existsSync(dbPath) && fs.existsSync(dbExamplePath)) {
-    try {
-      fs.copyFileSync(dbExamplePath, dbPath);
-      console.log('Cloned db.json from db.json.example.');
-    } catch (copyErr) {
-      console.error('Failed to clone db.json from example:', copyErr);
-    }
+// 1. Try to connect to PostgreSQL if DATABASE_URL starts with postgres:// or postgresql://
+if (process.env.DATABASE_URL && (process.env.DATABASE_URL.startsWith('postgres://') || process.env.DATABASE_URL.startsWith('postgresql://'))) {
+  try {
+    pgPool = new pg.Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: {
+        rejectUnauthorized: false
+      }
+    });
+    // Test PostgreSQL connection
+    await pgPool.query('SELECT 1;');
+    usePg = true;
+    console.log('Successfully connected to PostgreSQL database using DATABASE_URL.');
+  } catch (err) {
+    console.warn('⚠️ Could not connect to PostgreSQL database using DATABASE_URL. Falling back to local/other database settings.', err.message);
   }
-  fallbackDb = new JSONDb(dbPath);
+}
+
+// 2. If not using PostgreSQL, attempt to connect to MySQL
+if (!usePg) {
+  try {
+    const mysqlConfig = process.env.DATABASE_URL && (process.env.DATABASE_URL.startsWith('mysql://') || process.env.DATABASE_URL.startsWith('mysql2://'))
+      ? process.env.DATABASE_URL
+      : {
+          host: process.env.DB_HOST || '127.0.0.1',
+          user: process.env.DB_USER || 'root',
+          password: process.env.DB_PASSWORD || '',
+          database: process.env.DB_NAME || 'aerosend_db',
+          port: parseInt(process.env.DB_PORT) || 3306,
+          waitForConnections: true,
+          connectionLimit: 10,
+          queueLimit: 0
+        };
+    
+    pool = mysql.createPool(mysqlConfig);
+    // Test MySQL connection
+    await pool.query('SELECT 1;');
+    console.log('Successfully connected to MySQL database.');
+  } catch (err) {
+    console.warn('⚠️ Could not connect to MySQL database. Falling back to local JSON database storage.');
+    useFallback = true;
+    const dbPath = path.join(process.cwd(), 'server', 'db.json');
+    const dbExamplePath = path.join(process.cwd(), 'server', 'db.json.example');
+    if (!fs.existsSync(dbPath) && fs.existsSync(dbExamplePath)) {
+      try {
+        fs.copyFileSync(dbExamplePath, dbPath);
+        console.log('Cloned db.json from db.json.example.');
+      } catch (copyErr) {
+        console.error('Failed to clone db.json from example:', copyErr);
+      }
+    }
+    fallbackDb = new JSONDb(dbPath);
+  }
+}
+
+const pgKeyMap = {
+  // settings
+  senderemail: 'senderEmail',
+  sendername: 'senderName',
+  emailsperhour: 'emailsPerHour',
+  emailsperday: 'emailsPerDay',
+  delayseconds: 'delaySeconds',
+  connectiontimeout: 'connectionTimeout',
+  retryattempts: 'retryAttempts',
+  
+  // campaigns
+  recipientscount: 'recipientsCount',
+  sentcount: 'sentCount',
+  failedcount: 'failedCount',
+  scheduledate: 'scheduleDate',
+  smtpused: 'smtpUsed',
+  sendtime: 'sendTime',
+  completiontime: 'completionTime',
+  
+  // recipients
+  campaignid: 'campaignId',
+  sentat: 'sentAt',
+  openedat: 'openedAt',
+  clickedat: 'clickedAt',
+  repliedat: 'repliedAt',
+  followupstep: 'followupStep',
+  
+  // followup_sequences
+  delaydays: 'delayDays',
+  scheduledat: 'scheduledAt',
+  executedat: 'executedAt',
+  
+  // audit_logs
+  campaignname: 'campaignName',
+  recipientcount: 'recipientCount',
+  deliverystatus: 'deliveryStatus',
+  openstatus: 'openStatus',
+  failuredetails: 'failureDetails',
+  deletedat: 'deletedAt'
+};
+
+function normalizePgRowKeys(row) {
+  if (!row || typeof row !== 'object') return row;
+  const normalized = {};
+  for (const key of Object.keys(row)) {
+    const targetKey = pgKeyMap[key] || key;
+    normalized[targetKey] = row[key];
+  }
+  return normalized;
 }
 
 const queryWrapper = {
-  query: async (sql, params) => {
-    if (useFallback) {
+  query: async (sql, params = []) => {
+    if (usePg) {
+      // Convert MySQL '?' placeholders to PostgreSQL '$1', '$2', ...
+      let index = 1;
+      const pgSql = sql.replace(/\?/g, () => `$${index++}`);
+      
+      const res = await pgPool.query(pgSql, params);
+      
+      // Check query type
+      const trimmedSql = sql.trim().toLowerCase();
+      const isSelect = trimmedSql.startsWith('select') || trimmedSql.startsWith('show') || trimmedSql.startsWith('describe');
+      if (isSelect) {
+        const normalizedRows = res.rows.map(normalizePgRowKeys);
+        return [normalizedRows, res.fields];
+      } else {
+        return [{ affectedRows: res.rowCount }, null];
+      }
+    } else if (useFallback) {
       return executeJsonQuery(fallbackDb, sql, params);
     } else {
       return pool.query(sql, params);
     }
+  },
+  get isPg() {
+    return usePg;
   }
 };
 

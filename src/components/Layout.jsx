@@ -54,10 +54,6 @@ export const Layout = ({ children }) => {
     }
   }, [token, location.pathname, navigate]);
 
-  if (location.pathname === '/login') {
-    return <>{children}</>;
-  }
-
   const profileName = currentUser?.name || 'Vaibhav Soni';
   const profileAvatar = currentUser?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&q=80';
   const profileRole = currentUser?.role || 'Administrator';
@@ -167,8 +163,12 @@ export const Layout = ({ children }) => {
     navigate(n.path);
   };
 
+  if (location.pathname === '/login') {
+    return <>{children}</>;
+  }
+
   return (
-    <div className="flex h-screen bg-slate-100 text-slate-900 overflow-hidden font-sans">
+    <div className="flex h-screen bg-slate-100 text-slate-950 overflow-hidden font-sans">
       {/* Sidebar Navigation */}
       <motion.aside
         animate={{ width: isCollapsed ? 72 : 260 }}

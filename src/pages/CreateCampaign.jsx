@@ -838,20 +838,12 @@ export const CreateCampaign = () => {
               />
             </div>
 
-            {/* SMTP config selector */}
+            {/* Sender Gateway Info (Single profile enforced) */}
             <div className="space-y-1.5">
-              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Sender SMTP Gateway Profile</label>
-              <select
-                name="smtpUsed"
-                value={campaignDetails.smtpUsed}
-                onChange={handleDetailsChange}
-                className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs text-slate-800 focus:outline-none focus:border-indigo-650"
-              >
-                <option value="default">System Default Config ({settings.smtp.host || 'Local Mock'})</option>
-                {smtpConfigs.map(cfg => (
-                  <option key={cfg.id} value={cfg.id}>{cfg.name} ({cfg.host})</option>
-                ))}
-              </select>
+              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Sender SMTP Gateway</label>
+              <div className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3.5 py-2.5 text-xs text-slate-600 font-semibold">
+                System Default Config ({settings.smtp.host || 'Local Mock'})
+              </div>
             </div>
 
             {/* Schedule Option */}
